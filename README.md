@@ -41,7 +41,10 @@ GND precisa ser curto e comum com a cancela. `VCC_PROG` (9 V, medido) referencia
 pull-up do lado alto; não alimenta nada.
 
 > **Não monte o pull-up do `D2` (R4).** Com ele a placa **para de transmitir**. Verificado
-> nos dois sentidos — ver [`COMO-FUNCIONA.md`](docs/COMO-FUNCIONA.md) §1.
+> nos dois sentidos.
+>
+> A montagem validada também tem **4 × 4,7 kΩ em paralelo entre `VCC_PROG` e `GND`**
+> (≈ 7,5 mA). Reproduza — ver [`COMO-FUNCIONA.md`](docs/COMO-FUNCIONA.md) §1.
 
 ### Pinos que NÃO podem ser usados
 

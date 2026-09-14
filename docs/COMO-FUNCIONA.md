@@ -53,6 +53,17 @@ ninguém".
 
 Independente do mecanismo, **o fato está estabelecido: não monte o R4.**
 
+### Resumo da montagem que funciona
+
+| Componente | Onde | Montar? |
+|---|---|---|
+| `R3` 10k | 3V3 → `IO5` | **sim** |
+| `R5` 10k | 3V3 → `IO17` | **sim** |
+| `R6` 10k | `VCC_PROG` → `D3` | **sim** |
+| **`R4` 10k** | `VCC_PROG` → `D2` | **NÃO** — com ele a placa para de transmitir |
+| Carga 4 × 4,7k ‖ | `VCC_PROG` → `GND` | **sim** — presente na montagem validada (ver §2) |
+| `Q2`, `Q3` 2N7000 | gate em 3V3, source no lado 3,3 V, drain no lado 9 V | **sim** |
+
 ---
 
 ## 2. A placa não inicia a conversa sozinha
@@ -123,18 +134,24 @@ O firmware trata os três casos de reinício sem intervenção:
 | **Cancela reinicia**, ESP ligado | o ESP detecta que só chega splash e reengata pelo escalonamento acima |
 | **Queda geral** | os dois sobem juntos; o ESP engata no boot |
 
-### A carga no VCC_PROG não é necessária
+### A carga no VCC_PROG faz parte da montagem validada
 
-Durante a investigação foi testada a hipótese de que a placa detectaria a presença do
-programador pelo **consumo** no `VCC_PROG` — o original é alimentado por ele e puxa
-dezenas de miliampères, enquanto o adaptador pendura só dois resistores de 10k (~1,8 mA).
+A configuração que funciona tem **4 × 4,7 kΩ em paralelo (≈ 1,17 kΩ) entre `VCC_PROG` e
+`GND`**, drenando cerca de **7,5 mA**.
 
-Foram ligados 4 × 4,7 kΩ em paralelo (~7,5 mA) entre `VCC_PROG` e `GND` e **não houve
-diferença**. Depois ficou provado que a placa manda o splash **mesmo sem nenhum
-programador conectado**, o que descarta de vez a detecção por consumo.
+Ela foi acrescentada durante a investigação para testar a hipótese de que a placa
+detectaria o programador pelo **consumo** — o original é alimentado pelo barramento e
+puxa dezenas de miliampères, enquanto o adaptador sozinho pendura pouco mais de 1 mA.
 
-**Não coloque resistor de carga no `VCC_PROG`.** Além de inútil, foi observado que ele
-capta ruído na linha.
+**Honestidade sobre o que se sabe:** no momento em que foi instalada, nada mudou de
+imediato — o circuito tinha outros problemas em aberto. Quando tudo passou a funcionar,
+ela já estava lá e **nunca foi removida para testar sem ela**. Portanto:
+
+- é **parte da montagem validada**, e deve ser reproduzida
+- se é **necessária** ou apenas inofensiva, **não foi isolado**
+
+Para descobrir, basta levantar uma perna do conjunto com a sessão ativa e observar
+`polls` em `/api/state`. Se continuarem subindo a 23 ms, é dispensável.
 
 ---
 
