@@ -40,18 +40,68 @@ de transmitir na mesma hora; dessoldado, voltou a funcionar. Testado nos dois se
 | ausente | `polls` a 23 ms, `bad: 0` — sessão perfeita |
 | 10k para `VCC_PROG` | **zero quadros**, a placa fica muda |
 
-Note que o sintoma não é falha de leitura: é a **placa parando de transmitir**. A linha
-fica em repouso alto e silenciosa.
+Note que o sintoma **não é falha de leitura**: é a **placa parando de transmitir**. A
+linha fica em repouso alto e silenciosa.
 
-Hipótese que melhor explica — não verificada por medição direta: sem o `R4`, quem segura
-o `D2` é o nosso próprio MOSFET, através do diodo de corpo a partir do `R3` de 3,3 V,
-deixando a linha num nível **intermediário** (~3,3 a 3,9 V). O `R4` a levaria aos 9 V
-plenos. Se a placa usa essa tensão para detectar a presença de um programador — o
-original é alimentado pelo mesmo barramento e também carrega a linha —, o nível
-intermediário é a assinatura de "tem alguém aqui", e 9 V limpos significam "não tem
-ninguém".
+#### Por que funciona sem ele
 
-Independente do mecanismo, **o fato está estabelecido: não monte o R4.**
+O canal de RX é um receptor de coletor aberto clássico, e o pull-up que ele precisa é o
+`R3`, **do lado de 3,3 V**. O MOSFET traduz o sentido placa→ESP pelo diodo de corpo:
+
+```
+placa puxa D2 para 0
+   -> dreno vai a 0, source (3,3 V) fica acima
+   -> diodo de corpo conduz, source cai
+   -> Vgs sobe acima do limiar e o MOSFET liga
+   -> IO5 vai a 0                                     OK
+
+placa solta D2
+   -> R3 puxa IO5 de volta a 3,3 V                    OK
+```
+
+Nada disso depende de pull-up no lado de 9 V. **O `R4` é, no melhor dos casos,
+redundante.**
+
+#### O que o R4 introduz
+
+Ele cria um caminho de corrente que antes não existia:
+
+```
+VCC_PROG 8,8 V --[R4 10k]-- D2 --|>-- IO5 --[R3 10k]-- 3V3
+                              diodo de corpo
+```
+
+Corrente na malha: `(8,8 - 0,7 - 3,3) / 20k ~= 0,24 mA`, **entrando** no pino do ESP e
+tendendo a levar o `IO5` acima do proprio trilho de 3,3 V — onde fica grampeado perto de
+3,9 V pelo diodo de protecao interno.
+
+Ou seja, o `R4` faz o pino do ESP alimentar o rail de 3V3 pelo avesso. É indesejável por
+si só, ainda que a corrente seja pequena.
+
+#### O que continua sem explicação
+
+**Por que a placa para de transmitir.** Isso não decorre do acima: 0,88 mA de carga é
+irrelevante para qualquer driver.
+
+A hipótese que melhor encaixa é que a placa **meça o nível do `D2` para detectar o
+programador**. Sem o `R4`, o diodo de corpo grampeia a linha perto de **2,6 V** — uma
+assinatura de "tem alguém pendurado aqui". O `R4` tentaria levá-la aos 8,8 V.
+
+**Furo conhecido dessa hipótese:** o diodo é forte, então mesmo com o `R4` a linha não
+deveria chegar perto de 8,8 V. Isso a enfraquece, e por isso ela fica registrada como
+suposição.
+
+#### Medição que fecharia a questão
+
+Tensão no `D2` em repouso, com a cancela ligada, com e sem o `R4`:
+
+| Resultado | Conclusão |
+|---|---|
+| sem `R4` ≈ 2,6 V · com `R4` bem acima | confirma a hipótese do nível de detecção |
+| ambos ≈ 2,6 V | hipótese derrubada; o motivo é outro |
+
+Independente do mecanismo, **o fato está estabelecido por teste controlado nos dois
+sentidos: não monte o `R4`.**
 
 ### Resumo da montagem que funciona
 
