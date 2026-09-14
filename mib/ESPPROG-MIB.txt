@@ -1,0 +1,395 @@
+-- ---------------------------------------------------------------------------
+-- ESPPROG-MIB
+--
+-- Emulador do programador de mao da placa de cancela TRIFLEX CONNECT v2.36.33,
+-- rodando em WT32-ETH01 (ESP32 + LAN8720).
+--
+-- ATENCAO: 63050 e um numero de enterprise PROVISORIO, nao atribuido pela IANA.
+-- Se voce tem um PEN proprio, troque aqui e em -DESPPROG_ENTERPRISE no
+-- platformio.ini -- os dois precisam bater.
+-- ---------------------------------------------------------------------------
+
+ESPPROG-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY, OBJECT-TYPE, enterprises,
+    Integer32, Gauge32, Counter32, IpAddress
+        FROM SNMPv2-SMI
+    DisplayString
+        FROM SNMPv2-TC;
+
+espprog MODULE-IDENTITY
+    LAST-UPDATED "202609100000Z"
+    ORGANIZATION "espprog"
+    CONTACT-INFO "https://github.com/ -- projeto espprog"
+    DESCRIPTION
+        "Objetos expostos pelo emulador de programador de mao da placa
+         TRIFLEX CONNECT. Todos os valores sao lidos do LCD 2x16 que a placa
+         envia pelo barramento serial do conector PROG; nao ha acesso direto
+         as variaveis internas da placa.
+
+         Como a placa so transmite a tela que esta exibindo no momento, os
+         objetos dos grupos espprogStatus e espprogCounters possuem um objeto
+         *Age correspondente, que informa ha quantos milissegundos aquele valor
+         foi lido. O valor 4294967295 significa que a tela correspondente nunca
+         foi exibida desde o boot. SEMPRE consulte o *Age antes de confiar no
+         valor."
+    REVISION "202609100000Z"
+    DESCRIPTION "Versao inicial."
+    ::= { enterprises 63050 }
+
+espprogSystem   OBJECT IDENTIFIER ::= { espprog 1 }
+espprogLink     OBJECT IDENTIFIER ::= { espprog 2 }
+espprogScreen   OBJECT IDENTIFIER ::= { espprog 3 }
+espprogStatus   OBJECT IDENTIFIER ::= { espprog 4 }
+espprogCounters OBJECT IDENTIFIER ::= { espprog 5 }
+espprogControl  OBJECT IDENTIFIER ::= { espprog 6 }
+
+-- ===========================================================================
+-- espprogSystem
+-- ===========================================================================
+
+espprogFwVersion OBJECT-TYPE
+    SYNTAX      DisplayString (SIZE (0..32))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Versao do firmware do emulador."
+    ::= { espprogSystem 1 }
+
+espprogUptimeSec OBJECT-TYPE
+    SYNTAX      Gauge32
+    UNITS       "seconds"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Segundos decorridos desde o boot do modulo."
+    ::= { espprogSystem 2 }
+
+espprogMacAddress OBJECT-TYPE
+    SYNTAX      DisplayString (SIZE (0..17))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Endereco MAC da interface Ethernet, em texto."
+    ::= { espprogSystem 3 }
+
+espprogIpAddress OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Endereco IP atual da interface Ethernet."
+    ::= { espprogSystem 4 }
+
+espprogEthLink OBJECT-TYPE
+    SYNTAX      Integer32 (0..1)
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "1 = enlace Ethernet estabelecido, 0 = caido."
+    ::= { espprogSystem 5 }
+
+espprogEthSpeed OBJECT-TYPE
+    SYNTAX      Gauge32
+    UNITS       "Mbps"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Velocidade negociada do enlace Ethernet."
+    ::= { espprogSystem 6 }
+
+espprogFreeHeap OBJECT-TYPE
+    SYNTAX      Gauge32
+    UNITS       "bytes"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Memoria heap livre."
+    ::= { espprogSystem 7 }
+
+-- ===========================================================================
+-- espprogLink -- saude do barramento serial com a placa
+-- ===========================================================================
+
+espprogProgLink OBJECT-TYPE
+    SYNTAX      Integer32 (0..1)
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "1 = a placa enviou um quadro valido nos ultimos 2 segundos.
+         0 = barramento mudo: placa desligada, cabo solto ou fiacao invertida.
+         Este e o objeto principal de alarme."
+    ::= { espprogLink 1 }
+
+espprogLastFrameAge OBJECT-TYPE
+    SYNTAX      Gauge32
+    UNITS       "milliseconds"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "Milissegundos desde o ultimo quadro valido recebido da placa.
+         4294967295 = nenhum quadro recebido desde o boot."
+    ::= { espprogLink 2 }
+
+espprogPollPeriod OBJECT-TYPE
+    SYNTAX      Gauge32
+    UNITS       "milliseconds"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "Periodo medio entre os polls da placa. Valor esperado em operacao
+         normal: 23 a 24 ms."
+    ::= { espprogLink 3 }
+
+espprogFramesTotal OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Quadros validos recebidos da placa."
+    ::= { espprogLink 4 }
+
+espprogPollsTotal OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Comandos de poll recebidos."
+    ::= { espprogLink 5 }
+
+espprogScreensTotal OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Comandos de atualizacao de tela recebidos."
+    ::= { espprogLink 6 }
+
+espprogBeepsTotal OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Comandos de beep recebidos."
+    ::= { espprogLink 7 }
+
+espprogBadFrames OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "Quadros descartados por forma invalida (tamanho, endereco ou byte
+         final). Deve permanecer em zero; crescimento indica ruido na linha."
+    ::= { espprogLink 8 }
+
+espprogBadChecksum OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "Quadros descartados por checksum incorreto. Deve permanecer em zero."
+    ::= { espprogLink 9 }
+
+espprogResponses OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Respostas transmitidas para a placa."
+    ::= { espprogLink 10 }
+
+espprogTxEnabled OBJECT-TYPE
+    SYNTAX      Integer32 (0..1)
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "1 = o emulador responde a placa normalmente.
+         0 = modo escuta: apenas recebe e registra, sem transmitir."
+    ::= { espprogLink 11 }
+
+-- ===========================================================================
+-- espprogScreen -- conteudo bruto do LCD
+-- ===========================================================================
+
+espprogScreenLine1 OBJECT-TYPE
+    SYNTAX      DisplayString (SIZE (0..64))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "Primeira linha do LCD (16 caracteres), convertida para UTF-8.
+         Bytes do charset da placa ainda nao mapeados aparecem como '.'."
+    ::= { espprogScreen 1 }
+
+espprogScreenLine2 OBJECT-TYPE
+    SYNTAX      DisplayString (SIZE (0..64))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Segunda linha do LCD, mesmas regras da primeira."
+    ::= { espprogScreen 2 }
+
+espprogScreenRawHex OBJECT-TYPE
+    SYNTAX      DisplayString (SIZE (0..64))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "Os 32 bytes crus do LCD em hexadecimal maiusculo, sem separador.
+         Bytes 0-15 = linha 1, bytes 16-31 = linha 2."
+    ::= { espprogScreen 3 }
+
+espprogScreenId OBJECT-TYPE
+    SYNTAX      INTEGER {
+                    desconhecida(0),
+                    status(1),
+                    ciclos(2),
+                    idioma(3),
+                    splash(4)
+                }
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Qual das telas conhecidas a placa esta exibindo."
+    ::= { espprogScreen 4 }
+
+espprogScreenAge OBJECT-TYPE
+    SYNTAX      Gauge32
+    UNITS       "milliseconds"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "Milissegundos desde a ultima mudanca de conteudo do LCD.
+         4294967295 = nenhuma tela recebida desde o boot."
+    ::= { espprogScreen 5 }
+
+espprogScreenSeq OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "Contador incrementado a cada mudanca de conteudo do LCD. Serve para
+         detectar troca de tela sem comparar as strings."
+    ::= { espprogScreen 6 }
+
+-- ===========================================================================
+-- espprogStatus -- campos da tela principal
+-- ===========================================================================
+
+espprogFec OBJECT-TYPE
+    SYNTAX      Integer32 (-1..1)
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "Campo FEC (fechada) da tela de status. -1 = nunca lido desde o boot."
+    ::= { espprogStatus 1 }
+
+espprogAbr OBJECT-TYPE
+    SYNTAX      Integer32 (-1..1)
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Campo ABR (aberta). -1 = nunca lido."
+    ::= { espprogStatus 2 }
+
+espprogBot OBJECT-TYPE
+    SYNTAX      Integer32 (-1..1)
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Campo BOT (botoeira). -1 = nunca lido."
+    ::= { espprogStatus 3 }
+
+espprogFot OBJECT-TYPE
+    SYNTAX      Integer32 (-1..1)
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Campo FOT (fotocelula). -1 = nunca lido."
+    ::= { espprogStatus 4 }
+
+espprogRf OBJECT-TYPE
+    SYNTAX      Integer32 (-1..1)
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION "Campo RF (radio-frequencia). -1 = nunca lido."
+    ::= { espprogStatus 5 }
+
+espprogStatusAge OBJECT-TYPE
+    SYNTAX      Gauge32
+    UNITS       "milliseconds"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "Milissegundos desde a ultima leitura da tela de status. Como a tela de
+         status e a tela padrao da placa, este valor costuma ficar baixo."
+    ::= { espprogStatus 6 }
+
+-- ===========================================================================
+-- espprogCounters -- tela de ciclos / encoder
+-- ===========================================================================
+
+espprogCycles OBJECT-TYPE
+    SYNTAX      Gauge32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "Contador de ciclos da placa. So e atualizado quando a tela de ciclos
+         e exibida -- verifique espprogCyclesAge."
+    ::= { espprogCounters 1 }
+
+espprogCyclesAge OBJECT-TYPE
+    SYNTAX      Gauge32
+    UNITS       "milliseconds"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "Milissegundos desde a leitura do contador de ciclos.
+         4294967295 = nunca lido desde o boot."
+    ::= { espprogCounters 2 }
+
+espprogRpm OBJECT-TYPE
+    SYNTAX      Gauge32
+    UNITS       "rpm"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "Rotacao lida na tela de ciclos. Verifique espprogRpmAge."
+    ::= { espprogCounters 3 }
+
+espprogRpmAge OBJECT-TYPE
+    SYNTAX      Gauge32
+    UNITS       "milliseconds"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "Milissegundos desde a leitura do rpm.
+         4294967295 = nunca lido desde o boot."
+    ::= { espprogCounters 4 }
+
+espprogEncoder OBJECT-TYPE
+    SYNTAX      Integer32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "Angulo do encoder, com sinal, lido na tela de ciclos.
+         Verifique espprogEncoderAge."
+    ::= { espprogCounters 5 }
+
+espprogEncoderAge OBJECT-TYPE
+    SYNTAX      Gauge32
+    UNITS       "milliseconds"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "Milissegundos desde a leitura do encoder.
+         4294967295 = nunca lido desde o boot."
+    ::= { espprogCounters 6 }
+
+-- ===========================================================================
+-- espprogControl
+-- ===========================================================================
+
+espprogPressKey OBJECT-TYPE
+    SYNTAX      INTEGER {
+                    nenhuma(0),
+                    menos(1),
+                    mais(2),
+                    esquerda(3),
+                    direita(4)
+                }
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "Escrever um valor diferente de zero equivale a um toque na tecla
+         correspondente do programador. A leitura devolve sempre 0.
+
+         Exige que a community de escrita esteja configurada e nao vazia; caso
+         contrario o agente ignora silenciosamente o SetRequest.
+
+         CUIDADO: isto aperta teclas em um equipamento fisico em operacao."
+    ::= { espprogControl 1 }
+
+END

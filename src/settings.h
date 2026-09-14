@@ -1,0 +1,44 @@
+#pragma once
+#include <Arduino.h>
+
+struct Settings {
+    // ---- rede -------------------------------------------------------------
+    bool     dhcp;
+    uint32_t ip, mask, gw, dns1, dns2;   // usados apenas quando dhcp == false
+    char     hostname[32];
+
+    // ---- SNMP v2c ---------------------------------------------------------
+    bool     snmpEnabled;
+    uint16_t snmpPort;
+    char     roCommunity[33];
+    char     rwCommunity[33];            // vazio = SET desabilitado
+    char     sysContact[64];
+    char     sysLocation[64];
+
+    // ---- barramento PROG --------------------------------------------------
+    bool     txEnabled;                  // false = modo escuta (nao transmite)
+    uint16_t turnaroundUs;
+    uint16_t tailGapUs;
+    uint8_t  keyHoldPolls;
+    uint16_t beepUnitMs;                 // unidade de tempo do comando 'B'
+    bool     buzzer;
+    bool     led;
+    uint8_t  ethCombo;                   // combinacao de PHY que funcionou (ver netmgr)
+
+    // ---- varredura automatica de menus (para SNMP) ------------------------
+    bool     scanEnabled;
+    uint16_t scanIntervalSec;            // periodo entre varreduras
+    uint16_t scanIdleSec;                // so varre apos este tempo sem tecla humana
+    char     scanSeq[64];                // ex: "+,W1500,-,W1500"
+
+    // ---- interface web ----------------------------------------------------
+    bool     authEnabled;
+    char     authUser[24];
+    char     authPass[32];
+};
+
+extern Settings g_cfg;
+
+void settingsLoad();
+void settingsSave();
+void settingsFactoryDefaults();

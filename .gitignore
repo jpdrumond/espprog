@@ -1,0 +1,8 @@
+.pio/
+backup/*.bin
+.vscode/
+*.swp
+
+# repositorios de terceiros, clonados so para consulta
+WebServer_WT32_ETH01/
+outrofirm/
