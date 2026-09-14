@@ -15,21 +15,43 @@ foi medida no hardware.
 O levantamento marcava a tensão do `VCC_PROG` como *[a confirmar]*, supondo 3,3 ou 5 V.
 Medido: **8,8 V**.
 
-Isso torna obrigatório que os pull-ups do lado alto (`R4` e `R6`) sejam referenciados ao
-`VCC_PROG`, e **não** ao 3V3 do ESP. Com pull-up em 3,3 V, a linha `D3` repousa abaixo do
-limiar de entrada da placa (~4,5 a 6,3 V para lógica de 9 V) e ela nunca reconhece um
-programador conectado.
+Qualquer pull-up do lado alto precisa ser referenciado ao `VCC_PROG`, **nunca** ao 3V3 do
+ESP: em lógica de 9 V o limiar de entrada fica entre ~4,5 e 6,3 V, e 3,3 V é lido como
+nível baixo.
 
 ```
-3V3 ──┬── R3 ──── IO5        P4 (9 V) ──┬── R4 ──── D2
-      ├── R5 ──── IO17                  └── R6 ──── D3
-      ├── gate Q2
+3V3 ──┬── R3 ──── IO5        P4 (9 V) ──── R6 ──── D3
+      ├── R5 ──── IO17
+      ├── gate Q2                        (SEM resistor no D2 -- ver abaixo)
       └── gate Q3
 ```
 
-Os quatro resistores são independentes: sempre **alimentação → sinal**, nunca sinal → sinal.
 Os MOSFETs ficam com *source* no lado de 3,3 V e *drain* no lado de 9 V — invertidos, o
 diodo de corpo conduz os 9 V direto para o pino do ESP.
+
+### O R4 NÃO deve ser montado
+
+**O pull-up no `D2` impede o funcionamento.** Descoberto por acaso: o circuito funcionou a
+noite toda com o `R4` **esquecido**, sem solda. Assim que ele foi soldado, a placa parou
+de transmitir na mesma hora; dessoldado, voltou a funcionar. Testado nos dois sentidos.
+
+| `R4` | Resultado |
+|---|---|
+| ausente | `polls` a 23 ms, `bad: 0` — sessão perfeita |
+| 10k para `VCC_PROG` | **zero quadros**, a placa fica muda |
+
+Note que o sintoma não é falha de leitura: é a **placa parando de transmitir**. A linha
+fica em repouso alto e silenciosa.
+
+Hipótese que melhor explica — não verificada por medição direta: sem o `R4`, quem segura
+o `D2` é o nosso próprio MOSFET, através do diodo de corpo a partir do `R3` de 3,3 V,
+deixando a linha num nível **intermediário** (~3,3 a 3,9 V). O `R4` a levaria aos 9 V
+plenos. Se a placa usa essa tensão para detectar a presença de um programador — o
+original é alimentado pelo mesmo barramento e também carrega a linha —, o nível
+intermediário é a assinatura de "tem alguém aqui", e 9 V limpos significam "não tem
+ninguém".
+
+Independente do mecanismo, **o fato está estabelecido: não monte o R4.**
 
 ---
 

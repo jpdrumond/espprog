@@ -37,8 +37,11 @@ Conector PROG da placa (4 fios, lado a lado):
 | IO1 / IO3 | UART0 (gravação + log, 115200) | header J2 → CP2102 |
 | IO16, 18, 19, 21–23, 25–27 | LAN8720 (RMII/MDIO) | reservados pelo módulo |
 
-GND precisa ser curto e comum com a cancela. `VCC_PROG` só referencia os pull-ups do
-lado alto; não alimenta nada.
+GND precisa ser curto e comum com a cancela. `VCC_PROG` (9 V, medido) referencia o
+pull-up do lado alto; não alimenta nada.
+
+> **Não monte o pull-up do `D2` (R4).** Com ele a placa **para de transmitir**. Verificado
+> nos dois sentidos — ver [`COMO-FUNCIONA.md`](docs/COMO-FUNCIONA.md) §1.
 
 ### Pinos que NÃO podem ser usados
 
