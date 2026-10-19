@@ -5,6 +5,7 @@
 #include "netmgr.h"
 #include "snmpagent.h"
 #include "scan.h"
+#include "imu.h"
 #include <WebServer.h>
 #include <stdarg.h>
 
@@ -128,6 +129,50 @@ static void hValues()
     sendJson();
 }
 
+// Acelerometro/giroscopio. Unidades: g, graus/s, graus, graus Celsius.
+static void imuJson()
+{
+    ImuData im = imuGet();
+    char model[50];
+    jesc(im.model, model, sizeof(model));
+    jf("\"present\":%s,\"model\":\"%s\",\"addr\":\"0x%02X\",\"range_g\":%u,"
+       "\"range_dps\":%u,\"rate_hz\":%u,",
+       im.present ? "true" : "false", model, im.addr, im.rangeG, im.rangeDps,
+       (unsigned)IMU_RATE_HZ);
+    jf("\"ax\":%.3f,\"ay\":%.3f,\"az\":%.3f,\"gx\":%.2f,\"gy\":%.2f,\"gz\":%.2f,"
+       "\"temp\":%.1f,\"pitch\":%.2f,\"roll\":%.2f,",
+       im.ax, im.ay, im.az, im.gx, im.gy, im.gz, im.tempC, im.pitch, im.roll);
+    jf("\"lin\":%.3f,\"vib_rms\":%.3f,\"vib_peak\":%.3f,\"moving\":%s,"
+       "\"shocks\":%u,\"shock_g\":%.2f,\"shock_age\":%d,\"shock_thr\":%.2f,",
+       im.lin, im.vibRms, im.vibPeak, im.moving ? "true" : "false",
+       im.shocks, im.shockG, ageMs(im.shockMs), g_imuCfg.shockMg / 1000.0f);
+    jf("\"calibrated\":%s,\"calibrating\":%s,\"cal_age\":%d,"
+       "\"samples\":%u,\"errors\":%u,\"age_ms\":%d",
+       im.calibrated ? "true" : "false", im.calibrating ? "true" : "false",
+       ageMs(im.calMs), im.samples, im.errors, ageMs(im.updatedMs));
+}
+
+static void hImu()
+{
+    if (!guard()) return;
+    jreset(); jf("{"); imuJson(); jf("}");
+    sendJson();
+}
+
+// Mede de novo o bias do giroscopio. Assincrono: a task espera uma janela de
+// 2 s com o sensor parado; acompanhe por "calibrating" em /api/imu.
+static void hImuCal()
+{
+    if (!guard()) return;
+    if (!imuGet().present) {
+        server.send(409, "application/json", "{\"ok\":false,\"error\":\"sensor ausente\"}");
+        return;
+    }
+    imuCalibrate();
+    server.sendHeader("Cache-Control", "no-store");
+    server.send(200, "application/json", "{\"ok\":true,\"calibrating\":true}");
+}
+
 static void hState()
 {
     if (!guard()) return;
@@ -164,6 +209,8 @@ static void hState()
        l1e, l2e, hex, scr.id, scr.seq, ageMs(scr.updatedMs));
 
     jf("\"val\":{"); valuesJson(); jf("},");
+
+    jf("\"imu\":{"); imuJson(); jf("},");
 
     jf("\"snmp\":{\"en\":%s,\"port\":%u,\"rx\":%u,\"tx\":%u,\"bad\":%u,"
        "\"auth_fail\":%u,\"sets\":%u}}",
@@ -249,6 +296,8 @@ static void hGetConfig()
        g_cfg.buzzer ? "true" : "false", g_cfg.led ? "true" : "false");
     jf("\"scanEnabled\":%s,\"scanIntervalSec\":%u,\"scanIdleSec\":%u,\"scanSeq\":\"%s\",",
        g_cfg.scanEnabled ? "true" : "false", g_cfg.scanIntervalSec, g_cfg.scanIdleSec, c3);
+    jf("\"imuAccelG\":%u,\"imuGyroDps\":%u,\"imuShockMg\":%u,",
+       g_imuCfg.accelG, g_imuCfg.gyroDps, g_imuCfg.shockMg);
     jf("\"authEnabled\":%s,\"authUser\":\"%s\",\"authPass\":\"\"}",
        g_cfg.authEnabled ? "true" : "false", g_cfg.authUser);
     sendJson();
@@ -323,9 +372,20 @@ static void hPostConfig()
         strlcpy(g_cfg.authPass, server.arg("authPass").c_str(), sizeof(g_cfg.authPass));
     if (!g_cfg.authUser[0]) strlcpy(g_cfg.authUser, "admin", sizeof(g_cfg.authUser));
 
+    // faixas fora do que o chip aceita sao ignoradas, como um campo omitido
+    const ImuSettings imuAntes = g_imuCfg;
+    uint32_t ag = argU("imuAccelG",  g_imuCfg.accelG,  0, 65535);
+    if (ag == 2 || ag == 4 || ag == 8 || ag == 16) g_imuCfg.accelG = (uint8_t)ag;
+    uint32_t gd = argU("imuGyroDps", g_imuCfg.gyroDps, 0, 65535);
+    if (gd == 250 || gd == 500 || gd == 1000 || gd == 2000) g_imuCfg.gyroDps = (uint16_t)gd;
+    g_imuCfg.shockMg = (uint16_t)argU("imuShockMg", g_imuCfg.shockMg, 100, 16000);
+
     settingsSave();
     if (txAntes != g_cfg.txEnabled) progApplyTxMode();
     if (snmpTouched) snmpRestart();
+    // o limiar de pancada e lido a cada amostra; so a faixa exige reprogramar o chip
+    if (imuAntes.accelG != g_imuCfg.accelG || imuAntes.gyroDps != g_imuCfg.gyroDps)
+        imuApplyConfig();
 
     server.sendHeader("Cache-Control", "no-store");
     server.send(200, "application/json", "{\"ok\":true}");
@@ -499,6 +559,8 @@ void webBegin()
     server.on("/api/screen",      HTTP_GET,  hScreen);
     server.on("/api/screen.txt",  HTTP_GET,  hScreenTxt);
     server.on("/api/values",      HTTP_GET,  hValues);
+    server.on("/api/imu",         HTTP_GET,  hImu);
+    server.on("/api/imu/calibrate", HTTP_POST, hImuCal);
     server.on("/api/key",         HTTP_GET,  hKey);
     server.on("/api/key",         HTTP_POST, hKey);
     server.on("/api/config",      HTTP_GET,  hGetConfig);

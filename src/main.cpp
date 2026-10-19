@@ -13,6 +13,7 @@
 #include "websrv.h"
 #include "snmpagent.h"
 #include "scan.h"
+#include "imu.h"
 
 void setup()
 {
@@ -33,6 +34,7 @@ void setup()
     webBegin();
     snmpBegin();
     scanBegin();
+    imuBegin();      // depois do netBegin: as sondas de PHY tambem mexem no IO32/IO33
 
     Serial.println("[sys] pronto");
 }
@@ -47,14 +49,16 @@ static void heartbeat()
     last = millis();
 
     ProgStats st = progGetStats();
+    ImuData   im = imuGet();
     Serial.printf("[hb] up=%lus phy=%s eth=%s ip=%s prog=%s polls=%u telas=%u "
-                  "ruins=%u/%u heap=%u\n",
+                  "ruins=%u/%u imu=%s heap=%u\n",
                   (unsigned long)(millis() / 1000),
                   netPhyOk() ? "ok" : "FALHOU",
                   netLinkUp() ? "up" : "down",
                   netLocalIp().toString().c_str(),
                   progLinkUp() ? "ativo" : "mudo",
                   st.polls, st.screens, st.badFrames, st.badChk,
+                  im.present ? "ok" : "ausente",
                   ESP.getFreeHeap());
 }
 

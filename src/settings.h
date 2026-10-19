@@ -39,6 +39,18 @@ struct Settings {
 
 extern Settings g_cfg;
 
+// Acelerometro/giroscopio. Fica num blob PROPRIO na NVS ("imu"), fora de
+// Settings: settingsLoad() descarta o blob principal quando o tamanho muda, e
+// acrescentar campos la faria quem atualiza o firmware perder a configuracao
+// de rede -- o modulo voltaria para 192.168.1.21.
+struct ImuSettings {
+    uint8_t  accelG;                     // faixa do acelerometro: 2, 4, 8 ou 16 g
+    uint16_t gyroDps;                    // faixa do giroscopio: 250, 500, 1000 ou 2000 graus/s
+    uint16_t shockMg;                    // aceleracao (sem a gravidade) que conta como pancada
+};
+
+extern ImuSettings g_imuCfg;
+
 void settingsLoad();
 void settingsSave();
 void settingsFactoryDefaults();

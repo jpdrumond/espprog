@@ -10,6 +10,7 @@ static const char INDEX_HTML[] PROGMEM = R"HTML(<!doctype html>
 --acc:#5aa9e6;--ok:#3ddc84;--bad:#ff5f56;--warn:#ffbd2e;
 --lcd:#9fd13a;--lcdink:#16240a;--lcdoff:#7fae2e}
 *{box-sizing:border-box}
+[hidden]{display:none!important}  /* .pill define display e anularia o atributo */
 body{margin:0;background:var(--bg);color:var(--fg);
 font:14px/1.5 ui-sans-serif,system-ui,"Segoe UI",Roboto,sans-serif}
 header{display:flex;align-items:center;gap:14px;flex-wrap:wrap;
@@ -95,6 +96,7 @@ font-size:13px;margin-bottom:16px}
 
 <nav>
   <button class="sel" data-t="tela">Tela</button>
+  <button data-t="sensor">Sensor</button>
   <button data-t="rede">Rede</button>
   <button data-t="snmp">SNMP</button>
   <button data-t="avanc">Avancado</button>
@@ -133,6 +135,62 @@ font-size:13px;margin-bottom:16px}
   <div class="card">
     <h2>Barramento</h2>
     <div class="grid" id="stats"></div>
+  </div>
+</section>
+
+<!-- =================== SENSOR =================== -->
+<section id="sensor">
+  <div class="card">
+    <h2>Acelerometro e giroscopio</h2>
+    <p class="hint" id="imuInfo" style="text-align:left;margin:0 0 12px">--</p>
+    <div class="grid" id="imuVals"></div>
+    <div class="bar" style="margin-top:14px">
+      <button class="btn sec" type="button" id="imuCal">Calibrar giroscopio</button>
+      <span class="msg" id="mImuCal"></span>
+    </div>
+    <p class="hint" style="text-align:left;margin:10px 0 0">
+      A calibracao mede o desvio do giroscopio com o sensor <b>parado</b> por 2 s. Ela roda
+      sozinha ao ligar e so conclui quando nada se mexe. Pitch e roll vem da direcao da
+      gravidade: montando o modulo com o eixo <b>Y ao longo do braco</b> da cancela, o angulo
+      do braco aparece em <b>roll</b> (-180&deg; a 180&deg;).</p>
+  </div>
+  <div class="card">
+    <h2>Configuracao do sensor</h2>
+    <form id="fImu">
+      <div class="two">
+        <label><span>Faixa do acelerometro</span><select name="imuAccelG" id="imuAccelG">
+          <option value="2">&plusmn;2 g</option><option value="4">&plusmn;4 g</option>
+          <option value="8">&plusmn;8 g</option><option value="16">&plusmn;16 g</option>
+          </select></label>
+        <label><span>Faixa do giroscopio</span><select name="imuGyroDps" id="imuGyroDps">
+          <option value="250">&plusmn;250 &deg;/s</option>
+          <option value="500">&plusmn;500 &deg;/s</option>
+          <option value="1000">&plusmn;1000 &deg;/s</option>
+          <option value="2000">&plusmn;2000 &deg;/s</option></select></label>
+        <label><span>Limiar de pancada (mg alem da gravidade)</span>
+          <input type="number" name="imuShockMg" id="imuShockMg" min="100" max="16000"></label>
+      </div>
+      <div class="bar"><button class="btn" type="submit">Salvar</button>
+        <span class="msg" id="mImu"></span></div>
+      <p class="hint" style="text-align:left;margin-top:10px">Trocar a faixa reprograma
+        o sensor e refaz a calibracao. Faixa menor = mais resolucao; faixa maior = pancada
+        forte nao satura.</p>
+    </form>
+  </div>
+  <div class="card">
+    <h2>Ligacao do GY-521 (MPU-6050)</h2>
+    <table><thead><tr><th>GY-521</th><th>WT32-ETH01</th><th>Observacao</th></tr></thead>
+    <tbody>
+      <tr><td><code>VCC</code></td><td><code>3V3</code></td><td>o modulo consome ~4 mA</td></tr>
+      <tr><td><code>GND</code></td><td><code>GND</code></td><td></td></tr>
+      <tr><td><code>SCL</code></td><td><code>IO33</code></td><td>clock I2C</td></tr>
+      <tr><td><code>SDA</code></td><td><code>IO32</code></td><td>dados I2C</td></tr>
+      <tr><td><code>AD0</code></td><td>GND ou solto</td><td>endereco 0x68 (em 3V3: 0x69)</td></tr>
+      <tr><td><code>XDA</code> <code>XCL</code> <code>INT</code></td><td>nao ligar</td>
+        <td></td></tr>
+    </tbody></table>
+    <p class="hint" style="text-align:left;margin:10px 0 0">Fios curtos (ate ~50 cm): I2C
+      nao foi feito para cabo longo. O GY-521 ja tem os resistores de pull-up.</p>
   </div>
 </section>
 
@@ -297,7 +355,7 @@ font-size:13px;margin-bottom:16px}
       <tr><td><code>GET /api/screen.txt</code></td><td>As duas linhas em texto puro, uma por
         linha &mdash; pronto para <code>curl</code> em script.</td></tr>
       <tr><td><code>GET /api/state</code></td><td>Tudo: tela, valores extraidos, estatisticas
-        do barramento, rede e SNMP. E o que a propria pagina consome.</td></tr>
+        do barramento, sensor, rede e SNMP. E o que a propria pagina consome.</td></tr>
       <tr><td><code>GET /api/values</code></td><td>So os valores extraidos
         (FEC/ABR/BOT/FOT/RF, ciclos, rpm, encoder) com a idade de cada um.</td></tr>
     </tbody></table>
@@ -317,6 +375,16 @@ font-size:13px;margin-bottom:16px}
         <code>&lt;</code>/<code>&gt;</code>).</td></tr>
     </tbody></table>
     <pre id="exKey"></pre>
+  </div>
+  <div class="card">
+    <h2>Acelerometro e giroscopio</h2>
+    <table><tbody>
+      <tr><td><code>GET /api/imu</code></td><td>Leitura atual: aceleracao (g), rotacao
+        (&deg;/s), pitch/roll (&deg;), temperatura do chip, vibracao, pancadas e movimento.</td></tr>
+      <tr><td><code>POST /api/imu/calibrate</code></td><td>Mede de novo o desvio do
+        giroscopio. Deixe o sensor parado; acompanhe por <code>calibrating</code>.</td></tr>
+    </tbody></table>
+    <pre id="exImu"></pre>
   </div>
   <div class="card">
     <h2>Configuracao</h2>
@@ -469,6 +537,32 @@ function render(s){
     kv("Enlace",e.link?(e.speed+" Mbps "+(e.fd?"FD":"HD")):"caido")+
     kv("Uptime",age(s.up))+kv("Heap livre",(s.heap/1024).toFixed(0)+" kB");
 
+  const m=s.imu;
+  if(m){
+    const off=!m.present, f=(v,d)=>Number(v).toFixed(d);
+    $("#imuInfo").textContent=m.present?
+      (m.model+" em "+m.addr+" \u00b7 \u00b1"+m.range_g+" g \u00b7 \u00b1"+m.range_dps+
+       " \u00b0/s \u00b7 "+m.rate_hz+" Hz"+
+       (m.calibrating?" \u00b7 calibrando: mantenha o sensor parado":
+        m.calibrated?" \u00b7 giroscopio calibrado":"")):
+      "Sensor nao detectado. Ligue o GY-521 em SDA=IO32 e SCL=IO33 (tabela abaixo); "+
+      "o firmware procura de novo a cada 2 s.";
+    $("#imuVals").innerHTML=
+      kv("Pitch",f(m.pitch,1)+"\u00b0","",off)+kv("Roll",f(m.roll,1)+"\u00b0","",off)+
+      kv("Movimento",off?"--":m.calibrated?(m.moving?"sim":"parado"):"--",
+         m.calibrated||off?"":"aguarda calibracao",off||!m.calibrated)+
+      kv("Acel X",f(m.ax,3)+" g","",off)+kv("Acel Y",f(m.ay,3)+" g","",off)+
+      kv("Acel Z",f(m.az,3)+" g","",off)+
+      kv("Giro X",f(m.gx,1)+" \u00b0/s","",off)+kv("Giro Y",f(m.gy,1)+" \u00b0/s","",off)+
+      kv("Giro Z",f(m.gz,1)+" \u00b0/s","",off)+
+      kv("Vibracao RMS",f(m.vib_rms,3)+" g","janela de 1 s",off)+
+      kv("Vibracao pico",f(m.vib_peak,3)+" g","janela de 1 s",off)+
+      kv("Pancadas",m.shocks,m.shock_age<0?"nenhuma":
+         f(m.shock_g,2)+" g, ha "+age(m.shock_age),off)+
+      kv("Temp. do chip",f(m.temp,1)+" \u00b0C","",off)+
+      kv("Leituras",m.samples,m.errors+" com erro",off);
+  }
+
   $("#snmpstats").innerHTML=
     kv("Estado",s.snmp.en?("udp/"+s.snmp.port):"desligado")+
     kv("Recebidos",s.snmp.rx)+kv("Respondidos",s.snmp.tx)+
@@ -521,13 +615,22 @@ $("#fSnmp").onsubmit=e=>{e.preventDefault();save(e.target,"#mSnmp",false);};
 $("#fAdv").onsubmit=e=>{e.preventDefault();save(e.target,"#mAdv",false);};
 $("#fScan").onsubmit=e=>{e.preventDefault();save(e.target,"#mScan",false);};
 $("#fAuth").onsubmit=e=>{e.preventDefault();save(e.target,"#mAuth",false);};
+$("#fImu").onsubmit=e=>{e.preventDefault();save(e.target,"#mImu",false);};
+$("#imuCal").onclick=async()=>{
+  const m=$("#mImuCal");
+  try{
+    const j=await (await fetch("/api/imu/calibrate",{method:"POST"})).json();
+    m.className="msg "+(j.ok?"ok":"err");
+    m.textContent=j.ok?"calibrando: mantenha o sensor parado por 2 s":"erro: "+j.error;
+  }catch(e){m.className="msg err";m.textContent="erro: "+e.message;}
+};
 $("#scanNow").onclick=async()=>{await fetch("/api/scan",{method:"POST"});
   $("#mScan").className="msg ok";$("#mScan").textContent="varredura disparada";};
 $("#bReboot").onclick=async()=>{if(!confirm("Reiniciar o modulo?"))return;
   await fetch("/api/reboot",{method:"POST"});
   $("#mSys").textContent="reiniciando...";setTimeout(()=>location.reload(),6000);};
 $("#bReset").onclick=async()=>{
-  if(!confirm("Restaurar padroes de fabrica? A configuracao de rede volta para DHCP."))return;
+  if(!confirm("Restaurar padroes de fabrica? A rede volta para o IP fixo 192.168.1.21."))return;
   await fetch("/api/factory",{method:"POST"});
   $("#mSys").textContent="restaurado, reiniciando...";setTimeout(()=>location.reload(),6000);};
 
@@ -571,6 +674,27 @@ const OIDS=[
  ["{E}.5.5.0","encoder","Integer","angulo do encoder (com sinal)"],
  ["{E}.5.6.0","encoderAge","Gauge32","ms desde a leitura do encoder"],
  ["{E}.6.1.0","pressKey","Integer","SET 1=menos 2=mais 3=esquerda 4=direita"],
+ ["{E}.7.1.0","imuPresent","Integer","1 = acelerometro/giroscopio respondendo"],
+ ["{E}.7.2.0","imuModel","String","chip detectado (MPU-6050, MPU-6500, ...)"],
+ ["{E}.7.3.0","accelX","Integer","aceleracao X em mg (milesimos de g)"],
+ ["{E}.7.4.0","accelY","Integer","aceleracao Y em mg"],
+ ["{E}.7.5.0","accelZ","Integer","aceleracao Z em mg"],
+ ["{E}.7.6.0","gyroX","Integer","rotacao X em milligraus/s"],
+ ["{E}.7.7.0","gyroY","Integer","rotacao Y em milligraus/s"],
+ ["{E}.7.8.0","gyroZ","Integer","rotacao Z em milligraus/s"],
+ ["{E}.7.9.0","imuTemp","Integer","temperatura do chip em milligraus Celsius"],
+ ["{E}.7.10.0","pitch","Integer","inclinacao em milligraus (-90000..90000)"],
+ ["{E}.7.11.0","roll","Integer","inclinacao em milligraus (-180000..180000)"],
+ ["{E}.7.12.0","vibRms","Gauge32","vibracao RMS da ultima janela de 1 s, em mg"],
+ ["{E}.7.13.0","vibPeak","Gauge32","pico de vibracao da ultima janela, em mg"],
+ ["{E}.7.14.0","moving","Integer","1 = girando (so com o giroscopio calibrado)"],
+ ["{E}.7.15.0","shocks","Counter32","pancadas detectadas desde o boot"],
+ ["{E}.7.16.0","shockAge","Gauge32","ms desde a ultima pancada"],
+ ["{E}.7.17.0","shockPeak","Gauge32","pico da ultima pancada, em mg"],
+ ["{E}.7.18.0","imuAge","Gauge32","ms desde a ultima leitura boa do sensor"],
+ ["{E}.7.19.0","imuSamples","Counter32","leituras boas"],
+ ["{E}.7.20.0","imuErrors","Counter32","leituras com erro de I2C"],
+ ["{E}.7.21.0","imuCalibrated","Integer","1 = giroscopio calibrado"],
 ];
 function buildOidTable(){
   $("#oids tbody").innerHTML=OIDS.map(r=>
@@ -589,6 +713,11 @@ function buildExamples(){
     "curl http://"+h+"/api/key?k=left&action=down\n"+
     "curl http://"+h+"/api/key?action=up\n"+
     "curl http://"+h+"/api/key?k=plus,left       # combinacao";
+  $("#exImu").textContent=
+    "curl -s http://"+h+"/api/imu\n"+
+    '  {"present":true,"model":"MPU-6050","pitch":0.42,"roll":-1.07,\n'+
+    '   "ax":-0.007,"ay":-0.019,"az":1.002,"moving":false,"shocks":0, ...}\n'+
+    "curl -X POST http://"+h+"/api/imu/calibrate";
   $("#exCfg").textContent=
     "curl -s http://"+h+"/api/config\n"+
     "curl -X POST http://"+h+"/api/config -d 'dhcp=0&ip=192.168.1.50&mask=255.255.255.0&gw=192.168.1.1'\n"+
@@ -598,6 +727,7 @@ function buildExamples(){
     "snmpwalk -v2c -c "+(CFG.roCommunity||"public")+" "+(CFG.ip||h)+" "+ENT+"\n"+
     "snmpget  -v2c -c "+(CFG.roCommunity||"public")+" "+(CFG.ip||h)+" "+ENT+".4.3.0   # BOT\n"+
     "snmpget  -v2c -c "+(CFG.roCommunity||"public")+" "+(CFG.ip||h)+" "+ENT+".5.1.0   # ciclos\n"+
+    "snmpwalk -v2c -c "+(CFG.roCommunity||"public")+" "+(CFG.ip||h)+" "+ENT+".7       # sensor\n"+
     "snmpset  -v2c -c <rw> "+(CFG.ip||h)+" "+ENT+".6.1.0 i 2      # aperta a tecla +";
 }
 

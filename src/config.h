@@ -67,3 +67,10 @@ enum ScreenId : uint8_t {
 #define DEF_SNMP_PORT        161
 #define DEF_SNMP_RO          "public"
 #define DEF_SNMP_RW          ""      // vazio = SET desabilitado
+
+// ---------------------------------------------------------------------------
+//  Acelerometro/giroscopio MPU-6050 (ajustaveis pela aba Sensor)
+// ---------------------------------------------------------------------------
+#define DEF_IMU_ACCEL_G      8       // +-8 g: pancada forte nao satura
+#define DEF_IMU_GYRO_DPS     500     // braco de cancela gira bem abaixo disso
+#define DEF_IMU_SHOCK_MG     1500    // 1,5 g alem da gravidade = pancada

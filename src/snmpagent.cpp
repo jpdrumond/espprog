@@ -7,7 +7,9 @@
 #include "settings.h"
 #include "proglink.h"
 #include "netmgr.h"
+#include "imu.h"
 #include <WiFiUdp.h>
+#include <math.h>
 
 #ifndef ESPPROG_ENTERPRISE
 #define ESPPROG_ENTERPRISE 63050
@@ -73,6 +75,11 @@ enum {
     ID_cycles, ID_cyclesAge, ID_rpm, ID_rpmAge, ID_encoder, ID_encoderAge,
     // espprog.6 - controle
     ID_pressKey,
+    // espprog.7 - acelerometro/giroscopio (valores fracionarios x1000)
+    ID_imuPresent, ID_imuModel, ID_accelX, ID_accelY, ID_accelZ,
+    ID_gyroX, ID_gyroY, ID_gyroZ, ID_imuTemp, ID_pitch, ID_roll,
+    ID_vibRms, ID_vibPeak, ID_moving, ID_shocks, ID_shockAge, ID_shockPeak,
+    ID_imuAge, ID_imuSamples, ID_imuErrors, ID_imuCalibrated,
 };
 
 struct OidEntry {
@@ -136,6 +143,28 @@ static const uint32_t o_encoderAge[] = EP(5,6);
 
 static const uint32_t o_pressKey[]   = EP(6,1);
 
+static const uint32_t o_imuPresent[] = EP(7,1);
+static const uint32_t o_imuModel[]   = EP(7,2);
+static const uint32_t o_accelX[]     = EP(7,3);
+static const uint32_t o_accelY[]     = EP(7,4);
+static const uint32_t o_accelZ[]     = EP(7,5);
+static const uint32_t o_gyroX[]      = EP(7,6);
+static const uint32_t o_gyroY[]      = EP(7,7);
+static const uint32_t o_gyroZ[]      = EP(7,8);
+static const uint32_t o_imuTemp[]    = EP(7,9);
+static const uint32_t o_pitch[]      = EP(7,10);
+static const uint32_t o_roll[]       = EP(7,11);
+static const uint32_t o_vibRms[]     = EP(7,12);
+static const uint32_t o_vibPeak[]    = EP(7,13);
+static const uint32_t o_moving[]     = EP(7,14);
+static const uint32_t o_shocks[]     = EP(7,15);
+static const uint32_t o_shockAge[]   = EP(7,16);
+static const uint32_t o_shockPeak[]  = EP(7,17);
+static const uint32_t o_imuAge[]     = EP(7,18);
+static const uint32_t o_imuSamples[] = EP(7,19);
+static const uint32_t o_imuErrors[]  = EP(7,20);
+static const uint32_t o_imuCal[]     = EP(7,21);
+
 // raiz usada em sysObjectID
 static const uint32_t o_entRoot[]    = {1,3,6,1,4,1,ENT};
 
@@ -192,6 +221,28 @@ static const OidEntry kTable[] = {
     E(o_encoderAge,  ID_encoderAge,  false),
 
     E(o_pressKey,    ID_pressKey,    true),
+
+    E(o_imuPresent,  ID_imuPresent,  false),
+    E(o_imuModel,    ID_imuModel,    false),
+    E(o_accelX,      ID_accelX,      false),
+    E(o_accelY,      ID_accelY,      false),
+    E(o_accelZ,      ID_accelZ,      false),
+    E(o_gyroX,       ID_gyroX,       false),
+    E(o_gyroY,       ID_gyroY,       false),
+    E(o_gyroZ,       ID_gyroZ,       false),
+    E(o_imuTemp,     ID_imuTemp,     false),
+    E(o_pitch,       ID_pitch,       false),
+    E(o_roll,        ID_roll,        false),
+    E(o_vibRms,      ID_vibRms,      false),
+    E(o_vibPeak,     ID_vibPeak,     false),
+    E(o_moving,      ID_moving,      false),
+    E(o_shocks,      ID_shocks,      false),
+    E(o_shockAge,    ID_shockAge,    false),
+    E(o_shockPeak,   ID_shockPeak,   false),
+    E(o_imuAge,      ID_imuAge,      false),
+    E(o_imuSamples,  ID_imuSamples,  false),
+    E(o_imuErrors,   ID_imuErrors,   false),
+    E(o_imuCal,      ID_imuCalibrated, false),
 };
 static const int kTableLen = sizeof(kTable) / sizeof(kTable[0]);
 
@@ -223,12 +274,19 @@ static void setStr(SnmpVal &v, const char *s)
 static void setInt(SnmpVal &v, int32_t i)          { v.tag = T_INT;  v.ival = i; }
 static void setU(SnmpVal &v, uint8_t tag, uint32_t u) { v.tag = tag; v.uval = u; }
 
+// SNMP nao tem ponto flutuante: grandezas do sensor saem em milesimos
+// (mg, milligraus/s, milligraus, milligraus Celsius).
+static int32_t  milli(float f)  { return (int32_t)lroundf(f * 1000.0f); }
+static uint32_t milliU(float f) { return f > 0 ? (uint32_t)lroundf(f * 1000.0f) : 0; }
+
 static void getValue(uint8_t id, SnmpVal &v)
 {
     memset(&v, 0, sizeof(v));
     ScreenSnap scr; progGetScreen(&scr);
     ProgValues pv = progGetValues();
     ProgStats  st = progGetStats();
+    ImuData    im = {};
+    if (id >= ID_imuPresent) im = imuGet();
 
     switch (id) {
     case ID_sysDescr: {
@@ -288,6 +346,28 @@ static void getValue(uint8_t id, SnmpVal &v)
     case ID_encoderAge:  setU(v, T_GAUGE32, ageOf(pv.encoderMs)); break;
 
     case ID_pressKey:    setInt(v, 0); break;
+
+    case ID_imuPresent:  setInt(v, im.present ? 1 : 0); break;
+    case ID_imuModel:    setStr(v, im.model); break;
+    case ID_accelX:      setInt(v, milli(im.ax)); break;
+    case ID_accelY:      setInt(v, milli(im.ay)); break;
+    case ID_accelZ:      setInt(v, milli(im.az)); break;
+    case ID_gyroX:       setInt(v, milli(im.gx)); break;
+    case ID_gyroY:       setInt(v, milli(im.gy)); break;
+    case ID_gyroZ:       setInt(v, milli(im.gz)); break;
+    case ID_imuTemp:     setInt(v, milli(im.tempC)); break;
+    case ID_pitch:       setInt(v, milli(im.pitch)); break;
+    case ID_roll:        setInt(v, milli(im.roll)); break;
+    case ID_vibRms:      setU(v, T_GAUGE32, milliU(im.vibRms)); break;
+    case ID_vibPeak:     setU(v, T_GAUGE32, milliU(im.vibPeak)); break;
+    case ID_moving:      setInt(v, im.moving ? 1 : 0); break;
+    case ID_shocks:      setU(v, T_COUNTER32, im.shocks); break;
+    case ID_shockAge:    setU(v, T_GAUGE32, ageOf(im.shockMs)); break;
+    case ID_shockPeak:   setU(v, T_GAUGE32, milliU(im.shockG)); break;
+    case ID_imuAge:      setU(v, T_GAUGE32, ageOf(im.updatedMs)); break;
+    case ID_imuSamples:  setU(v, T_COUNTER32, im.samples); break;
+    case ID_imuErrors:   setU(v, T_COUNTER32, im.errors); break;
+    case ID_imuCalibrated: setInt(v, im.calibrated ? 1 : 0); break;
     default:             v.tag = T_NOSUCHOBJ; break;
     }
 }

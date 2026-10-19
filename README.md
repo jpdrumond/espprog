@@ -8,6 +8,8 @@ teclas por rede.
   o programador na mão. Configuração de rede (DHCP ou IP fixo), SNMP e ajustes finos.
 - **API REST/JSON** — puxar a tela e gerar comandos de tecla por script.
 - **SNMP v2c** — cada campo da tela em um OID próprio, para Zabbix e afins.
+- **Acelerômetro e giroscópio** (MPU-6050 / GY-521, opcional) — inclinação, vibração,
+  pancadas e movimento, na web, na API e no SNMP. Ver §1.1.
 
 Endereço de fábrica: **`192.168.1.21/24`**, gateway `192.168.1.1`,
 também acessível em `http://espprog.local`.
@@ -32,6 +34,8 @@ Conector PROG da placa (4 fios, lado a lado):
 | **IO17** | TX — envia D3 (prog → placa) | via Q3 (2N7000) + R5 10k para 3V3 |
 | **IO4** | LED de atividade | LED → 1k → GND (opcional) |
 | **IO14** | buzzer | 1k → base NPN → buzzer ativo 5 V (opcional) |
+| **IO32** | SDA do MPU-6050 | pino `SDA` do GY-521 (opcional — ver §1.1) |
+| **IO33** | SCL do MPU-6050 | pino `SCL` do GY-521 (opcional — ver §1.1) |
 | IO0 | BOOT (gravação) | **também é o clock do LAN8720 — não usar para mais nada** |
 | EN | RST | botão para GND |
 | IO1 / IO3 | UART0 (gravação + log, 115200) | header J2 → CP2102 |
@@ -63,6 +67,61 @@ interna para o LAN8720:
 O IO0 é o único desses que aparece no header (serve de BOOT), e é justamente o mais
 sensível: ele carrega os 50 MHz. Deixe-o **completamente livre** em operação normal —
 jumper só durante a gravação.
+
+### 1.1 Acelerômetro e giroscópio — MPU-6050 (módulo GY-521)
+
+Opcional. Sem o módulo o firmware funciona igual; com ele, aparece a aba **Sensor** na
+interface, o `GET /api/imu` e o grupo SNMP `.63050.7`.
+
+| Pino do GY-521 | Liga em (WT32-ETH01) | Observação |
+|---|---|---|
+| **VCC** | **3V3** | o módulo consome ~4 mA; não pesa na fonte |
+| **GND** | **GND** | |
+| **SCL** | **IO33** | clock I2C |
+| **SDA** | **IO32** | dados I2C |
+| AD0 | GND, ou deixe solto | endereço `0x68`. Em 3V3 vira `0x69` — o firmware acha os dois |
+| XDA, XCL | **não ligar** | barramento auxiliar, para magnetômetro externo |
+| INT | **não ligar** | o firmware lê por varredura a 100 Hz |
+
+Por que **IO32/IO33** e não outros pinos livres do header:
+
+- **IO12** com pull-up no boot configura a flash para 1,8 V e **o módulo não liga** — e
+  o GY-521 já vem com pull-up de 4,7 kΩ no SDA e no SCL;
+- **IO2** em nível alto impede entrar no modo de gravação;
+- **IO15** também é pino de *strapping* (log de boot);
+- **IO35, IO36 e IO39** são só entrada: não puxam a linha para baixo, e I2C precisa disso.
+
+Cuidados de montagem:
+
+- **Fio curto, até ~50 cm.** I2C foi feito para dentro da placa. O firmware usa 100 kHz
+  para ter folga; se `errors` em `/api/imu` subir, encurte o cabo ou use par trançado
+  (SDA com GND, SCL com GND).
+- O GY-521 já tem os resistores de pull-up — não precisa acrescentar nada.
+- **Para medir o ângulo do braço da cancela**, prenda o módulo com o **eixo Y ao longo do
+  braço** (as setas X/Y estão impressas na placa): o ângulo aparece em `roll`. Ver
+  [`docs/API.md`](docs/API.md) §3.1.
+- **Ligue com o módulo desenergizado.** Inserir com o ESP ligado funciona — o firmware
+  procura o sensor a cada 2 s —, mas não há por que arriscar.
+
+No boot, o console serial confirma:
+
+```
+[imu] MPU-6050 em 0x68 (WHO_AM_I=0x68), +-8 g, +-500 graus/s, 100 Hz
+[imu] giroscopio calibrado: bias -1.83 0.42 0.17 graus/s
+```
+
+ou, sem o módulo (ou com SDA/SCL trocados):
+
+```
+[imu] nenhum MPU-6050 em SDA=IO32 SCL=IO33 (0x68/0x69); procurando a cada 2 s
+```
+
+A calibração do giroscópio roda sozinha e só conclui com **2 s sem movimento**; enquanto
+isso `moving` fica em `false`. O heartbeat mostra `imu=ok` ou `imu=ausente`.
+
+Muitos GY-521 vendidos como MPU-6050 trazem um MPU-6500 ou um clone. O firmware identifica
+o chip pelo registrador `WHO_AM_I` e se ajusta; o modelo aparece em `/api/imu` e na aba
+Sensor. Em clones desconhecidos a temperatura pode sair deslocada — o resto funciona.
 
 ---
 
@@ -390,8 +449,10 @@ src/
   web_ui.h                interface web embarcada
   snmpagent.h/.cpp        agente SNMP v1/v2c próprio (BER na mão)
   scan.h/.cpp             varredura automática de menus
+  imu.h/.cpp              acelerômetro/giroscópio MPU-6050 (I2C, task no core 0)
 docs/API.md               documentação da API
 mib/ESPPROG-MIB.txt       MIB para Zabbix/NMS
 ```
 
-Sem dependências externas — só o que vem no core Arduino-ESP32.
+Sem dependências externas — só o que vem no core Arduino-ESP32 (o I2C usa o `Wire` do
+próprio core).

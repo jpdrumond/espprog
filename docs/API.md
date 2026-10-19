@@ -99,6 +99,86 @@ Os campos que o firmware sabe interpretar das telas conhecidas.
 
 ---
 
+## 3.1 Acelerômetro e giroscópio
+
+Dados de um **MPU-6050 (módulo GY-521)** ligado ao próprio ESP — não vêm da placa da
+cancela. Ligação em [`README.md`](../README.md) §1.1. O firmware lê o sensor a 100 Hz numa
+task própria e deriva inclinação, vibração, pancadas e movimento.
+
+### `GET /api/imu`
+
+```bash
+curl -s http://192.168.1.21/api/imu
+```
+
+```json
+{
+  "present": true, "model": "MPU-6050", "addr": "0x68",
+  "range_g": 8, "range_dps": 500, "rate_hz": 100,
+  "ax": -0.007, "ay": -0.019, "az": 1.002,
+  "gx": 0.03, "gy": -0.05, "gz": 0.01,
+  "temp": 29.4, "pitch": 0.42, "roll": -1.07,
+  "lin": 0.004, "vib_rms": 0.003, "vib_peak": 0.009, "moving": false,
+  "shocks": 2, "shock_g": 2.37, "shock_age": 81234, "shock_thr": 1.50,
+  "calibrated": true, "calibrating": false, "cal_age": 912345,
+  "samples": 91234, "errors": 0, "age_ms": 4
+}
+```
+
+| Campo | Unidade | Significado |
+|---|---|---|
+| `present` | — | `true` se o sensor responde no I2C. Com `false`, os demais campos guardam a última leitura — confira `age_ms` |
+| `model` | — | chip detectado: `MPU-6050`, `MPU-6500`, `MPU-9250`, `ICM-206xx`, ou `compativel MPU-6050 (0xNN)` para clones |
+| `addr` | — | `0x68` (AD0 em GND ou solto) ou `0x69` (AD0 em 3V3) |
+| `range_g` / `range_dps` | g / °/s | faixas em uso (ver `imuAccelG` / `imuGyroDps` em §6) |
+| `ax` `ay` `az` | g | aceleração em cada eixo, **incluindo a gravidade**. Parado e deitado: `az` ≈ 1 |
+| `gx` `gy` `gz` | °/s | velocidade angular, já sem o desvio (bias) medido na calibração |
+| `temp` | °C | temperatura do silício do sensor — alguns graus acima do ambiente |
+| `pitch` | ° | inclinação em torno de Y, −90 a 90 |
+| `roll` | ° | inclinação em torno de X, −180 a 180 |
+| `lin` | g | aceleração **sem** a gravidade, agora |
+| `vib_rms` / `vib_peak` | g | RMS e pico de `lin` na última janela de 1 s |
+| `moving` | — | `true` enquanto gira a mais de 3 °/s. Fica `false` até `calibrated` |
+| `shocks` | — | pancadas desde o boot: `lin` passou de `shock_thr`. Um impacto conta uma vez |
+| `shock_g` | g | pico da última pancada |
+| `shock_age` | ms | desde a última pancada; `-1` = nenhuma |
+| `shock_thr` | g | limiar de pancada em uso (`imuShockMg` / 1000) |
+| `calibrated` | — | o bias do giroscópio foi medido com o sensor parado |
+| `calibrating` | — | esperando uma janela de 2 s sem movimento para (re)calibrar |
+| `cal_age` | ms | desde a última calibração; `-1` = nunca |
+| `samples` / `errors` | — | leituras boas / com erro de I2C. `errors` subindo = fio longo ou mau contato |
+| `age_ms` | ms | desde a última leitura boa; `-1` = nunca leu |
+
+**Como os ângulos são calculados.** O giroscópio gira o vetor gravidade junto com o
+sensor e o acelerômetro corrige a deriva devagar (filtro complementar, constante de
+≈ 0,5 s) — mas só quando a aceleração total está perto de 1 g; durante um tranco ele vai só
+no giroscópio. Assim o ângulo não pula com vibração e não deriva com o tempo. Não há
+magnetômetro, então **não existe rumo (yaw)** absoluto.
+
+**Para medir o ângulo do braço da cancela**, monte o módulo com o **eixo Y ao longo do
+braço** (as setas X/Y estão impressas na placa). Girando em torno de X, o ângulo aparece em
+`roll`, que vai de −180° a 180° sem singularidade. Com o eixo X ao longo do braço o ângulo
+iria para `pitch`, que satura em ±90° — justamente com o braço em pé.
+
+### `POST /api/imu/calibrate`
+
+Mede de novo o desvio do giroscópio. O MPU-6050 lê até ±20 °/s parado, e esse desvio
+muda com a temperatura; sem descontá-lo, `gx`/`gy`/`gz` e `moving` não valem nada.
+
+A calibração **roda sozinha a cada boot** (e quando o sensor é reconectado) e só conclui
+com 2 s sem movimento — se a cancela estiver se mexendo, ela espera. Este endpoint força
+uma nova medição, por exemplo depois que o equipamento esquentou:
+
+```bash
+curl -X POST http://192.168.1.21/api/imu/calibrate
+# {"ok":true,"calibrating":true}
+```
+
+Resposta imediata; acompanhe `calibrating` em `/api/imu`. Sem sensor → `409`
+`{"ok":false,"error":"sensor ausente"}`.
+
+---
+
 ## 4. Estado completo
 
 ### `GET /api/state`
@@ -116,6 +196,7 @@ Tudo de uma vez — é o que a própria interface web consome, a cada 250 ms.
             "period_ms":23,"age_ms":11,"keya":"B4","keyb":"B4","scanning":false},
   "screen":{"l1":"...","l2":"...","raw":"...","id":1,"seq":12,"age_ms":4210},
   "val":   { ... igual a /api/values ... },
+  "imu":   { ... igual a /api/imu ... },
   "snmp":  {"en":true,"port":161,"rx":88,"tx":88,"bad":0,"auth_fail":0,"sets":0}
 }
 ```
@@ -226,6 +307,7 @@ Devolve todos os parâmetros. `authPass` volta sempre vazio (nunca é exposto).
   "keyHoldPolls": 3, "beepUnitMs": 10, "buzzer": true, "led": true,
   "scanEnabled": false, "scanIntervalSec": 60, "scanIdleSec": 30,
   "scanSeq": "+,W1500,-,W1500",
+  "imuAccelG": 8, "imuGyroDps": 500, "imuShockMg": 1500,
   "authEnabled": false, "authUser": "admin", "authPass": ""
 }
 ```
@@ -271,6 +353,9 @@ curl -X POST http://192.168.1.21/api/config -d 'txEnabled=0'
 | `scanIntervalSec` | int | 5–3600 | período entre varreduras |
 | `scanIdleSec` | int | 1–3600 | só varre após N s sem tecla humana |
 | `scanSeq` | string ≤63 | — | sequência (ver §7) |
+| `imuAccelG` | int | `2` `4` `8` `16` | faixa do acelerômetro em g (padrão 8); outro valor é ignorado. Reprograma o sensor e refaz a calibração |
+| `imuGyroDps` | int | `250` `500` `1000` `2000` | faixa do giroscópio em °/s (padrão 500); idem |
+| `imuShockMg` | int | 100–16000 | aceleração sem a gravidade, em mg, que conta como pancada (padrão 1500) |
 | `authEnabled` | bool | — | HTTP Basic |
 | `authUser` | string ≤23 | — | usuário |
 | `authPass` | string ≤31 | — | senha; **string vazia mantém a atual** |
@@ -413,7 +498,41 @@ configurada e não vazia — sem isso o firmware nem responde ao `SetRequest`.
 snmpset -v2c -c cancela-rw 192.168.1.21 1.3.6.1.4.1.63050.6.1.0 i 2
 ```
 
-### 8.7 Segurança
+### 8.7 Acelerômetro e giroscópio — `.63050.7`
+
+SNMP não tem ponto flutuante: **valores fracionários vêm multiplicados por 1000** (mg,
+milligraus por segundo, milligraus, milligraus Celsius). No Zabbix, use o
+pré-processamento *Custom multiplier* `0.001`.
+
+| OID | Nome | Tipo | Descrição |
+|---|---|---|---|
+| `.7.1.0` | `imuPresent` | Integer | `1` = sensor respondendo |
+| `.7.2.0` | `imuModel` | String | chip detectado |
+| `.7.3.0` | `accelX` | Integer | aceleração X em mg |
+| `.7.4.0` | `accelY` | Integer | aceleração Y em mg |
+| `.7.5.0` | `accelZ` | Integer | aceleração Z em mg (≈ 1000 deitado) |
+| `.7.6.0` | `gyroX` | Integer | rotação X em m°/s |
+| `.7.7.0` | `gyroY` | Integer | rotação Y em m°/s |
+| `.7.8.0` | `gyroZ` | Integer | rotação Z em m°/s |
+| `.7.9.0` | `imuTemp` | Integer | temperatura do chip em m°C |
+| `.7.10.0` | `pitch` | Integer | inclinação em m° (−90000 a 90000) |
+| `.7.11.0` | `roll` | Integer | inclinação em m° (−180000 a 180000) |
+| `.7.12.0` | `vibRms` | Gauge32 | vibração RMS da última janela de 1 s, em mg |
+| `.7.13.0` | `vibPeak` | Gauge32 | pico de vibração da última janela, em mg |
+| `.7.14.0` | `moving` | Integer | `1` = girando (só com o giroscópio calibrado) |
+| `.7.15.0` | `shocks` | Counter32 | pancadas desde o boot |
+| `.7.16.0` | `shockAge` | Gauge32 | ms desde a última pancada (`4294967295` = nenhuma) |
+| `.7.17.0` | `shockPeak` | Gauge32 | pico da última pancada, em mg |
+| `.7.18.0` | `imuAge` | Gauge32 | ms desde a última leitura boa (`4294967295` = nunca) |
+| `.7.19.0` | `imuSamples` | Counter32 | leituras boas |
+| `.7.20.0` | `imuErrors` | Counter32 | leituras com erro de I2C |
+| `.7.21.0` | `imuCalibrated` | Integer | `1` = giroscópio calibrado |
+
+```bash
+snmpwalk -v2c -c public 192.168.1.21 1.3.6.1.4.1.63050.7
+```
+
+### 8.8 Segurança
 
 SNMP v2c manda a community em claro. O agente:
 
@@ -441,6 +560,10 @@ Itens SNMP agent, `{$SNMP_COMMUNITY}` no host:
 | Idade dos ciclos | `1.3.6.1.4.1.63050.5.2.0` | Numérico | trigger se > 1 h → varredura parou |
 | Tela (linha 1) | `1.3.6.1.4.1.63050.3.1.0` | Texto | |
 | Tela (linha 2) | `1.3.6.1.4.1.63050.3.2.0` | Texto | |
+| Sensor presente | `1.3.6.1.4.1.63050.7.1.0` | Numérico | trigger em `last()=0` |
+| Ângulo do braço | `1.3.6.1.4.1.63050.7.11.0` | Numérico (float) | multiplicador `0.001` → graus |
+| Vibração RMS | `1.3.6.1.4.1.63050.7.12.0` | Numérico (float) | multiplicador `0.001` → g |
+| Pancadas | `1.3.6.1.4.1.63050.7.15.0` | Numérico | trigger em `change()>0` |
 
 Trigger sugerida para o link do barramento:
 
@@ -448,8 +571,15 @@ Trigger sugerida para o link do barramento:
 last(/espprog/1.3.6.1.4.1.63050.2.1.0)=0
 ```
 
-Se preferir HTTP agent em vez de SNMP, aponte para `http://192.168.1.21/api/values` e
-use pré-processamento JSONPath (`$.cycles`, `$.bot`, …).
+Trigger sugerida para pancada no braço:
+
+```
+change(/espprog/1.3.6.1.4.1.63050.7.15.0)>0
+```
+
+Se preferir HTTP agent em vez de SNMP, aponte para `http://192.168.1.21/api/values` (ou
+`/api/imu`) e use pré-processamento JSONPath (`$.cycles`, `$.bot`, `$.roll`, …) — no
+REST os valores do sensor já vêm em unidades normais, sem o fator 1000.
 
 ---
 
@@ -481,6 +611,7 @@ Ferramentas de bancada, criadas durante o bring-up. Detalhes de uso em
 | `400` | parâmetro inválido (ex.: `k` não é uma tecla conhecida) |
 | `401` | autenticação exigida e ausente/errada |
 | `404` | rota inexistente |
+| `409` | `POST /api/imu/calibrate` sem sensor ligado |
 
 ---
 
@@ -493,6 +624,8 @@ curl -s  $H/api/screen.txt                     # tela em texto
 curl -s  $H/api/screen                         # tela em JSON + hex
 curl -s  $H/api/values                         # valores extraídos
 curl -s  $H/api/state                          # tudo
+curl -s  $H/api/imu                            # acelerômetro / giroscópio
+curl -sX POST $H/api/imu/calibrate             # recalibra o giroscópio
 curl -s  "$H/api/key?k=plus"                   # toque
 curl -s  "$H/api/key?k=plusminus"              # + e - juntos
 curl -s  "$H/api/key?k=left&action=down"       # segura
@@ -503,5 +636,6 @@ curl -sX POST $H/api/scan                      # varre menus agora
 curl -sX POST $H/api/reboot                    # reinicia
 
 snmpwalk -v2c -c public 192.168.1.21 1.3.6.1.4.1.63050
+snmpwalk -v2c -c public 192.168.1.21 1.3.6.1.4.1.63050.7      # sensor
 snmpset  -v2c -c <rw>   192.168.1.21 1.3.6.1.4.1.63050.6.1.0 i 2
 ```

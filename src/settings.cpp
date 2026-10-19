@@ -3,6 +3,7 @@
 #include <Preferences.h>
 
 Settings g_cfg;
+ImuSettings g_imuCfg;
 static Preferences prefs;
 static const char *NS = "espprog";
 
@@ -42,6 +43,21 @@ void settingsFactoryDefaults()
     g_cfg.authEnabled = false;
     strlcpy(g_cfg.authUser, "admin", sizeof(g_cfg.authUser));
     strlcpy(g_cfg.authPass, "admin", sizeof(g_cfg.authPass));
+
+    memset(&g_imuCfg, 0, sizeof(g_imuCfg));
+    g_imuCfg.accelG  = DEF_IMU_ACCEL_G;
+    g_imuCfg.gyroDps = DEF_IMU_GYRO_DPS;
+    g_imuCfg.shockMg = DEF_IMU_SHOCK_MG;
+}
+
+// Aceita so os valores que o chip suporta; qualquer outro vira o padrao.
+static void imuSanitize()
+{
+    uint8_t g = g_imuCfg.accelG;
+    if (g != 2 && g != 4 && g != 8 && g != 16) g_imuCfg.accelG = DEF_IMU_ACCEL_G;
+    uint16_t d = g_imuCfg.gyroDps;
+    if (d != 250 && d != 500 && d != 1000 && d != 2000) g_imuCfg.gyroDps = DEF_IMU_GYRO_DPS;
+    if (g_imuCfg.shockMg < 100 || g_imuCfg.shockMg > 16000) g_imuCfg.shockMg = DEF_IMU_SHOCK_MG;
 }
 
 void settingsLoad()
@@ -68,6 +84,12 @@ void settingsLoad()
         g_cfg.rwCommunity[sizeof(g_cfg.rwCommunity) - 1] = 0;
         g_cfg.scanSeq[sizeof(g_cfg.scanSeq) - 1]         = 0;
     }
+    // isKey() antes: em quem veio do firmware anterior a chave ainda nao existe,
+    // e getBytesLength() logaria NOT_FOUND em todo boot ate a primeira gravacao.
+    if (prefs.isKey("imu") && prefs.getBytesLength("imu") == sizeof(ImuSettings)) {
+        prefs.getBytes("imu", &g_imuCfg, sizeof(g_imuCfg));
+        imuSanitize();
+    }
     prefs.end();
 }
 
@@ -75,5 +97,6 @@ void settingsSave()
 {
     if (!prefs.begin(NS, false)) return;
     prefs.putBytes("blob", &g_cfg, sizeof(g_cfg));
+    prefs.putBytes("imu",  &g_imuCfg, sizeof(g_imuCfg));
     prefs.end();
 }

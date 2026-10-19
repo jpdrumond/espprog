@@ -19,7 +19,7 @@ IMPORTS
         FROM SNMPv2-TC;
 
 espprog MODULE-IDENTITY
-    LAST-UPDATED "202609100000Z"
+    LAST-UPDATED "202610190000Z"
     ORGANIZATION "espprog"
     CONTACT-INFO "https://github.com/ -- projeto espprog"
     DESCRIPTION
@@ -33,7 +33,12 @@ espprog MODULE-IDENTITY
          *Age correspondente, que informa ha quantos milissegundos aquele valor
          foi lido. O valor 4294967295 significa que a tela correspondente nunca
          foi exibida desde o boot. SEMPRE consulte o *Age antes de confiar no
-         valor."
+         valor.
+
+         O grupo espprogImu vem de um acelerometro/giroscopio MPU-6050
+         (modulo GY-521) ligado ao proprio emulador, e nao da placa."
+    REVISION "202610190000Z"
+    DESCRIPTION "Grupo espprogImu: acelerometro e giroscopio MPU-6050."
     REVISION "202609100000Z"
     DESCRIPTION "Versao inicial."
     ::= { enterprises 63050 }
@@ -44,6 +49,7 @@ espprogScreen   OBJECT IDENTIFIER ::= { espprog 3 }
 espprogStatus   OBJECT IDENTIFIER ::= { espprog 4 }
 espprogCounters OBJECT IDENTIFIER ::= { espprog 5 }
 espprogControl  OBJECT IDENTIFIER ::= { espprog 6 }
+espprogImu      OBJECT IDENTIFIER ::= { espprog 7 }
 
 -- ===========================================================================
 -- espprogSystem
@@ -391,5 +397,210 @@ espprogPressKey OBJECT-TYPE
 
          CUIDADO: isto aperta teclas em um equipamento fisico em operacao."
     ::= { espprogControl 1 }
+
+-- ===========================================================================
+-- espprogImu
+--
+-- Valores fracionarios multiplicados por 1000 (SNMP nao tem ponto flutuante).
+-- ===========================================================================
+
+espprogImuPresent OBJECT-TYPE
+    SYNTAX      Integer32 (0..1)
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "1 quando o sensor responde no I2C (SDA=IO32, SCL=IO33,
+         endereco 0x68 ou 0x69). Com 0, os demais objetos do grupo
+         ficam com o ultimo valor lido -- confira espprogImuAge."
+    ::= { espprogImu 1 }
+
+espprogImuModel OBJECT-TYPE
+    SYNTAX      DisplayString (SIZE (0..31))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "Chip detectado pelo registrador WHO_AM_I: MPU-6050, MPU-6500,
+         MPU-9250, ICM-206xx, ou 'compativel MPU-6050 (0xNN)' para
+         clones com identificador fora da tabela."
+    ::= { espprogImu 2 }
+
+espprogImuAccelX OBJECT-TYPE
+    SYNTAX      Integer32
+    UNITS       "milli-g"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "Aceleracao no eixo X, incluindo a gravidade."
+    ::= { espprogImu 3 }
+
+espprogImuAccelY OBJECT-TYPE
+    SYNTAX      Integer32
+    UNITS       "milli-g"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "Aceleracao no eixo Y, incluindo a gravidade."
+    ::= { espprogImu 4 }
+
+espprogImuAccelZ OBJECT-TYPE
+    SYNTAX      Integer32
+    UNITS       "milli-g"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "Aceleracao no eixo Z, incluindo a gravidade. Com o
+         modulo deitado, componentes para cima, perto de 1000."
+    ::= { espprogImu 5 }
+
+espprogImuGyroX OBJECT-TYPE
+    SYNTAX      Integer32
+    UNITS       "millidegrees per second"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "Velocidade angular em torno de X, ja sem o bias."
+    ::= { espprogImu 6 }
+
+espprogImuGyroY OBJECT-TYPE
+    SYNTAX      Integer32
+    UNITS       "millidegrees per second"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "Velocidade angular em torno de Y, ja sem o bias."
+    ::= { espprogImu 7 }
+
+espprogImuGyroZ OBJECT-TYPE
+    SYNTAX      Integer32
+    UNITS       "millidegrees per second"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "Velocidade angular em torno de Z, ja sem o bias."
+    ::= { espprogImu 8 }
+
+espprogImuTemperature OBJECT-TYPE
+    SYNTAX      Integer32
+    UNITS       "millidegrees Celsius"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "Temperatura do silicio do sensor. Acompanha o
+         ambiente com alguns graus a mais; nao e um termometro."
+    ::= { espprogImu 9 }
+
+espprogImuPitch OBJECT-TYPE
+    SYNTAX      Integer32 (-90000..90000)
+    UNITS       "millidegrees"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "Inclinacao em torno de Y, calculada pela direcao da
+         gravidade (filtro complementar acelerometro + giroscopio)."
+    ::= { espprogImu 10 }
+
+espprogImuRoll OBJECT-TYPE
+    SYNTAX      Integer32 (-180000..180000)
+    UNITS       "millidegrees"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "Inclinacao em torno de X. Com o eixo Y do modulo ao
+         longo do braco da cancela, e o angulo do braco."
+    ::= { espprogImu 11 }
+
+espprogImuVibrationRms OBJECT-TYPE
+    SYNTAX      Gauge32
+    UNITS       "milli-g"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "RMS da aceleracao sem a gravidade na ultima janela de 1 s."
+    ::= { espprogImu 12 }
+
+espprogImuVibrationPeak OBJECT-TYPE
+    SYNTAX      Gauge32
+    UNITS       "milli-g"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "Pico da aceleracao sem a gravidade na ultima janela de 1 s."
+    ::= { espprogImu 13 }
+
+espprogImuMoving OBJECT-TYPE
+    SYNTAX      Integer32 (0..1)
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "1 enquanto a rotacao passa de 3 graus/s. Fica em 0 ate o
+         giroscopio ser calibrado (espprogImuCalibrated = 1)."
+    ::= { espprogImu 14 }
+
+espprogImuShocks OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "Pancadas desde o boot: eventos em que a aceleracao sem a
+         gravidade passou do limiar configurado (padrao 1500 mg). Um
+         evento so conta uma vez, mesmo que oscile."
+    ::= { espprogImu 15 }
+
+espprogImuShockAge OBJECT-TYPE
+    SYNTAX      Gauge32
+    UNITS       "milliseconds"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "Milissegundos desde a ultima pancada. 4294967295 = nenhuma
+         desde o boot."
+    ::= { espprogImu 16 }
+
+espprogImuShockPeak OBJECT-TYPE
+    SYNTAX      Gauge32
+    UNITS       "milli-g"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "Pico da ultima pancada."
+    ::= { espprogImu 17 }
+
+espprogImuAge OBJECT-TYPE
+    SYNTAX      Gauge32
+    UNITS       "milliseconds"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "Milissegundos desde a ultima leitura boa do sensor.
+         4294967295 = nunca leu. Valor alto = sensor desligado ou cabo
+         com problema."
+    ::= { espprogImu 18 }
+
+espprogImuSamples OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "Leituras boas do sensor (100 por segundo)."
+    ::= { espprogImu 19 }
+
+espprogImuErrors OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "Leituras com erro de I2C. Subindo = fio longo, mau
+         contato ou ruido."
+    ::= { espprogImu 20 }
+
+espprogImuCalibrated OBJECT-TYPE
+    SYNTAX      Integer32 (0..1)
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "1 quando o bias do giroscopio foi medido com o sensor parado.
+         A calibracao roda sozinha no boot e so conclui com 2 s sem
+         movimento."
+    ::= { espprogImu 21 }
 
 END
