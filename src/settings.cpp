@@ -4,6 +4,7 @@
 
 Settings g_cfg;
 ImuSettings g_imuCfg;
+GateSettings g_gateCfg;
 static Preferences prefs;
 static const char *NS = "espprog";
 
@@ -48,6 +49,8 @@ void settingsFactoryDefaults()
     g_imuCfg.accelG  = DEF_IMU_ACCEL_G;
     g_imuCfg.gyroDps = DEF_IMU_GYRO_DPS;
     g_imuCfg.shockMg = DEF_IMU_SHOCK_MG;
+
+    memset(&g_gateCfg, 0, sizeof(g_gateCfg));
 }
 
 // Aceita so os valores que o chip suporta; qualquer outro vira o padrao.
@@ -90,6 +93,8 @@ void settingsLoad()
         prefs.getBytes("imu", &g_imuCfg, sizeof(g_imuCfg));
         imuSanitize();
     }
+    if (prefs.isKey("gate") && prefs.getBytesLength("gate") == sizeof(GateSettings))
+        prefs.getBytes("gate", &g_gateCfg, sizeof(g_gateCfg));
     prefs.end();
 }
 
@@ -98,5 +103,6 @@ void settingsSave()
     if (!prefs.begin(NS, false)) return;
     prefs.putBytes("blob", &g_cfg, sizeof(g_cfg));
     prefs.putBytes("imu",  &g_imuCfg, sizeof(g_imuCfg));
+    prefs.putBytes("gate", &g_gateCfg, sizeof(g_gateCfg));
     prefs.end();
 }

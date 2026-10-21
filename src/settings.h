@@ -51,6 +51,20 @@ struct ImuSettings {
 
 extern ImuSettings g_imuCfg;
 
+// Posicoes de referencia da cancela, gravadas pela aba Sensor. Blob proprio
+// ("gate") pelo mesmo motivo do "imu". Cada referencia e a direcao da gravidade
+// vista pelo sensor naquela posicao: comparar o vetor inteiro funciona em
+// qualquer montagem, sem depender de qual eixo ficou ao longo do braco.
+#define GATE_REF_CLOSED  0x01
+#define GATE_REF_OPEN    0x02
+struct GateSettings {
+    uint8_t valid;                       // GATE_REF_CLOSED | GATE_REF_OPEN ja gravadas
+    float   closed[3];                   // vetor unitario com a cancela fechada
+    float   open[3];                     // vetor unitario com a cancela aberta
+};
+
+extern GateSettings g_gateCfg;
+
 void settingsLoad();
 void settingsSave();
 void settingsFactoryDefaults();

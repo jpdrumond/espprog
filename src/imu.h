@@ -19,6 +19,11 @@ struct ImuData {
     float    vibRms;         // RMS de lin na ultima janela de 1 s
     float    vibPeak;        // pico de lin na ultima janela de 1 s
     bool     moving;         // giroscopio acima do limiar de movimento
+    float    gdir[3];        // direcao da gravidade (vetor unitario, filtrado)
+
+    uint8_t  gate;           // GATE_UNKNOWN / GATE_CLOSED / GATE_OPEN
+    float    gateDegClosed;  // angulo ate a referencia "fechada" (-1 = nao gravada)
+    float    gateDegOpen;    // angulo ate a referencia "aberta"  (-1 = nao gravada)
 
     bool     calibrated;     // bias do giroscopio medido com o sensor parado
     bool     calibrating;    // esperando uma janela parada para calibrar
@@ -35,7 +40,22 @@ struct ImuData {
 
 #define IMU_RATE_HZ 100
 
+// Estado da cancela; os valores sao os mesmos do OID gateState.
+enum GateState : uint8_t {
+    GATE_UNKNOWN = 0,        // sensor ausente ou referencias nao gravadas
+    GATE_CLOSED  = 1,
+    GATE_OPEN    = 2,
+};
+#define GATE_MIN_SEP_DEG 10.0f   // referencias mais proximas que isso nao separam nada
+
 void    imuBegin();
 ImuData imuGet();
 void    imuCalibrate();      // pede nova calibracao do giroscopio (sensor parado)
 void    imuApplyConfig();    // reaplica faixas e limiar depois de mudar g_imuCfg
+
+// Grava a posicao atual como referencia de cancela aberta (open=true) ou
+// fechada e salva na NVS. Falha com o sensor ausente ou em movimento. Em
+// *sepDeg devolve o angulo entre as duas referencias (-1 se falta a outra).
+bool        imuGateTeach(bool open, float *sepDeg, const char **err);
+void        imuGateClear();
+const char *imuGateName(uint8_t gate);   // "aberta" / "fechada" / "desconhecido"

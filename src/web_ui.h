@@ -141,6 +141,22 @@ font-size:13px;margin-bottom:16px}
 <!-- =================== SENSOR =================== -->
 <section id="sensor">
   <div class="card">
+    <h2>Cancela</h2>
+    <div class="grid" id="gateVals"></div>
+    <div class="bar" style="margin-top:14px">
+      <button class="btn" type="button" data-gate="fechada">Gravar posicao FECHADA</button>
+      <button class="btn" type="button" data-gate="aberta">Gravar posicao ABERTA</button>
+      <button class="btn sec" type="button" id="gateClear">Apagar</button>
+      <span class="msg" id="mGate"></span>
+    </div>
+    <p class="hint" style="text-align:left;margin:10px 0 0">
+      Com o sensor ja preso no braco: feche a cancela, espere parar e clique em
+      <b>Gravar posicao FECHADA</b>; abra, espere parar e clique em <b>Gravar posicao
+      ABERTA</b>. Dai em diante a cancela vale a posicao gravada mais proxima &mdash; no
+      meio do curso ela so troca depois de passar da metade. Funciona em qualquer
+      orientacao de montagem. Para script: <code>GET /api/gate</code>.</p>
+  </div>
+  <div class="card">
     <h2>Acelerometro e giroscopio</h2>
     <p class="hint" id="imuInfo" style="text-align:left;margin:0 0 12px">--</p>
     <div class="grid" id="imuVals"></div>
@@ -383,6 +399,12 @@ font-size:13px;margin-bottom:16px}
         (&deg;/s), pitch/roll (&deg;), temperatura do chip, vibracao, pancadas e movimento.</td></tr>
       <tr><td><code>POST /api/imu/calibrate</code></td><td>Mede de novo o desvio do
         giroscopio. Deixe o sensor parado; acompanhe por <code>calibrating</code>.</td></tr>
+      <tr><td><code>GET /api/gate</code></td><td>So o estado da cancela, em texto puro:
+        <code>aberta</code> ou <code>fechada</code> (<code>desconhecido</code> sem sensor
+        ou sem as posicoes gravadas).</td></tr>
+      <tr><td><code>POST /api/gate/set?pos=fechada</code></td><td>Grava a posicao atual
+        como referencia (<code>fechada</code> ou <code>aberta</code>). Cancela parada.</td></tr>
+      <tr><td><code>POST /api/gate/clear</code></td><td>Apaga as duas referencias.</td></tr>
     </tbody></table>
     <pre id="exImu"></pre>
   </div>
@@ -561,6 +583,15 @@ function render(s){
          f(m.shock_g,2)+" g, ha "+age(m.shock_age),off)+
       kv("Temp. do chip",f(m.temp,1)+" \u00b0C","",off)+
       kv("Leituras",m.samples,m.errors+" com erro",off);
+    const st=m.gate, unk=st==="desconhecido",
+      ang=(set,d)=>!set?"nao gravada":off?"--":f(d,1)+"°";
+    $("#gateVals").innerHTML=
+      kv("Estado",unk?"--":st.toUpperCase(),
+         off?"sensor ausente":!(m.gate_closed_set&&m.gate_open_set)?
+           "grave as duas posicoes":unk?"posicoes iguais: grave de novo":"",unk)+
+      kv("Ate FECHADA",ang(m.gate_closed_set,m.gate_deg_closed),"",
+         off||!m.gate_closed_set)+
+      kv("Ate ABERTA",ang(m.gate_open_set,m.gate_deg_open),"",off||!m.gate_open_set);
   }
 
   $("#snmpstats").innerHTML=
@@ -616,6 +647,19 @@ $("#fAdv").onsubmit=e=>{e.preventDefault();save(e.target,"#mAdv",false);};
 $("#fScan").onsubmit=e=>{e.preventDefault();save(e.target,"#mScan",false);};
 $("#fAuth").onsubmit=e=>{e.preventDefault();save(e.target,"#mAuth",false);};
 $("#fImu").onsubmit=e=>{e.preventDefault();save(e.target,"#mImu",false);};
+document.querySelectorAll("[data-gate]").forEach(b=>b.onclick=async()=>{
+  const m=$("#mGate"), pos=b.dataset.gate;
+  try{
+    const j=await (await fetch("/api/gate/set?pos="+pos,{method:"POST"})).json();
+    m.className="msg "+(j.ok&&!j.warning?"ok":"err");
+    m.textContent=!j.ok?"erro: "+j.error:j.warning?j.warning:
+      "posicao "+pos+" gravada"+(j.sep_deg>=0?" ("+j.sep_deg.toFixed(1)+"° entre as duas)":"");
+  }catch(e){m.className="msg err";m.textContent="erro: "+e.message;}
+});
+$("#gateClear").onclick=async()=>{
+  if(!confirm("Apagar as posicoes gravadas da cancela?"))return;
+  await fetch("/api/gate/clear",{method:"POST"});
+  $("#mGate").className="msg ok";$("#mGate").textContent="posicoes apagadas";};
 $("#imuCal").onclick=async()=>{
   const m=$("#mImuCal");
   try{
@@ -695,6 +739,7 @@ const OIDS=[
  ["{E}.7.19.0","imuSamples","Counter32","leituras boas"],
  ["{E}.7.20.0","imuErrors","Counter32","leituras com erro de I2C"],
  ["{E}.7.21.0","imuCalibrated","Integer","1 = giroscopio calibrado"],
+ ["{E}.7.22.0","gateState","Integer","cancela: 1 = fechada, 2 = aberta, 0 = desconhecido"],
 ];
 function buildOidTable(){
   $("#oids tbody").innerHTML=OIDS.map(r=>

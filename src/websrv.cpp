@@ -15,7 +15,7 @@ static volatile uint32_t s_rebootAt = 0;
 // ---------------------------------------------------------------------------
 //  Montagem de JSON em buffer fixo (evita churn de String a cada 250 ms)
 // ---------------------------------------------------------------------------
-static char   JB[2800];
+static char   JB[3200];   // /api/state inteiro cabe aqui; estourar trunca o JSON
 static size_t JP;
 
 static void jreset() { JP = 0; JB[0] = 0; }
@@ -147,9 +147,58 @@ static void imuJson()
        im.lin, im.vibRms, im.vibPeak, im.moving ? "true" : "false",
        im.shocks, im.shockG, ageMs(im.shockMs), g_imuCfg.shockMg / 1000.0f);
     jf("\"calibrated\":%s,\"calibrating\":%s,\"cal_age\":%d,"
-       "\"samples\":%u,\"errors\":%u,\"age_ms\":%d",
+       "\"samples\":%u,\"errors\":%u,\"age_ms\":%d,",
        im.calibrated ? "true" : "false", im.calibrating ? "true" : "false",
        ageMs(im.calMs), im.samples, im.errors, ageMs(im.updatedMs));
+    jf("\"gate\":\"%s\",\"gate_closed_set\":%s,\"gate_open_set\":%s,"
+       "\"gate_deg_closed\":%.1f,\"gate_deg_open\":%.1f",
+       imuGateName(im.gate),
+       (g_gateCfg.valid & GATE_REF_CLOSED) ? "true" : "false",
+       (g_gateCfg.valid & GATE_REF_OPEN)   ? "true" : "false",
+       im.gateDegClosed, im.gateDegOpen);
+}
+
+// So o estado da cancela, em texto puro: "aberta", "fechada" ou
+// "desconhecido" (sensor ausente ou referencias ainda nao gravadas).
+static void hGate()
+{
+    if (!guard()) return;
+    server.sendHeader("Cache-Control", "no-store");
+    server.send(200, "text/plain", imuGateName(imuGet().gate));
+}
+
+// Grava a posicao atual como referencia: ?pos=aberta|fechada (ou open|closed).
+static void hGateSet()
+{
+    if (!guard()) return;
+    const String p = server.arg("pos");
+    const bool open   = p == "aberta"  || p == "open";
+    const bool closed = p == "fechada" || p == "closed";
+    if (!open && !closed) {
+        server.send(400, "application/json",
+                    "{\"ok\":false,\"error\":\"pos deve ser aberta ou fechada\"}");
+        return;
+    }
+    float sep; const char *err = "";
+    if (!imuGateTeach(open, &sep, &err)) {
+        jreset(); jf("{\"ok\":false,\"error\":\"%s\"}", err);
+        server.send(409, "application/json", JB);
+        return;
+    }
+    jreset();
+    jf("{\"ok\":true,\"pos\":\"%s\",\"sep_deg\":%.1f", open ? "aberta" : "fechada", sep);
+    if (sep >= 0 && sep < GATE_MIN_SEP_DEG)
+        jf(",\"warning\":\"aberta e fechada estao a so %.1f graus: grave de novo\"", sep);
+    jf("}");
+    sendJson();
+}
+
+static void hGateClear()
+{
+    if (!guard()) return;
+    imuGateClear();
+    server.sendHeader("Cache-Control", "no-store");
+    server.send(200, "application/json", "{\"ok\":true}");
 }
 
 static void hImu()
@@ -561,6 +610,9 @@ void webBegin()
     server.on("/api/values",      HTTP_GET,  hValues);
     server.on("/api/imu",         HTTP_GET,  hImu);
     server.on("/api/imu/calibrate", HTTP_POST, hImuCal);
+    server.on("/api/gate",        HTTP_GET,  hGate);
+    server.on("/api/gate/set",    HTTP_POST, hGateSet);
+    server.on("/api/gate/clear",  HTTP_POST, hGateClear);
     server.on("/api/key",         HTTP_GET,  hKey);
     server.on("/api/key",         HTTP_POST, hKey);
     server.on("/api/config",      HTTP_GET,  hGetConfig);

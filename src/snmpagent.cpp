@@ -79,7 +79,7 @@ enum {
     ID_imuPresent, ID_imuModel, ID_accelX, ID_accelY, ID_accelZ,
     ID_gyroX, ID_gyroY, ID_gyroZ, ID_imuTemp, ID_pitch, ID_roll,
     ID_vibRms, ID_vibPeak, ID_moving, ID_shocks, ID_shockAge, ID_shockPeak,
-    ID_imuAge, ID_imuSamples, ID_imuErrors, ID_imuCalibrated,
+    ID_imuAge, ID_imuSamples, ID_imuErrors, ID_imuCalibrated, ID_gateState,
 };
 
 struct OidEntry {
@@ -164,6 +164,7 @@ static const uint32_t o_imuAge[]     = EP(7,18);
 static const uint32_t o_imuSamples[] = EP(7,19);
 static const uint32_t o_imuErrors[]  = EP(7,20);
 static const uint32_t o_imuCal[]     = EP(7,21);
+static const uint32_t o_gateState[]  = EP(7,22);
 
 // raiz usada em sysObjectID
 static const uint32_t o_entRoot[]    = {1,3,6,1,4,1,ENT};
@@ -243,6 +244,7 @@ static const OidEntry kTable[] = {
     E(o_imuSamples,  ID_imuSamples,  false),
     E(o_imuErrors,   ID_imuErrors,   false),
     E(o_imuCal,      ID_imuCalibrated, false),
+    E(o_gateState,   ID_gateState,   false),
 };
 static const int kTableLen = sizeof(kTable) / sizeof(kTable[0]);
 
@@ -368,6 +370,7 @@ static void getValue(uint8_t id, SnmpVal &v)
     case ID_imuSamples:  setU(v, T_COUNTER32, im.samples); break;
     case ID_imuErrors:   setU(v, T_COUNTER32, im.errors); break;
     case ID_imuCalibrated: setInt(v, im.calibrated ? 1 : 0); break;
+    case ID_gateState:   setInt(v, im.gate); break;   // 0 desconhecido, 1 fechada, 2 aberta
     default:             v.tag = T_NOSUCHOBJ; break;
     }
 }

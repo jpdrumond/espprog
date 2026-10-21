@@ -36,6 +36,9 @@
 #define IMU_CAL_SAMPLES   200      // janela de calibracao: 2 s parado
 #define IMU_CAL_GYRO_DPS  5.0f     // variacao maxima por eixo na janela: tremor passa, giro nao
 #define IMU_CAL_TILT_DEG  1.0f     // giro maximo da gravidade entre o 1o e o ultimo quarto
+#define GATE_HYST_FRAC    0.10f    // histerese da cancela: 10% do angulo entre as referencias
+#define GATE_HYST_MIN_DEG 2.0f
+#define GATE_TEACH_AGE_MS 500      // leitura mais velha que isso nao serve de referencia
 
 // --- registradores (comuns a MPU-6050 / 6500 / 9250 / ICM-206xx) -----------
 #define R_SMPLRT_DIV    0x19
@@ -99,6 +102,92 @@ ImuData imuGet()
 
 void imuCalibrate()   { s_calReq = true; }
 void imuApplyConfig() { s_reconfig = true; }
+
+// ---------------------------------------------------------------------------
+//  Cancela aberta / fechada
+//
+//  Cada referencia e a direcao da gravidade gravada com a cancela parada
+//  naquela posicao. A posicao atual vale a referencia mais proxima em angulo,
+//  com histerese para nao ficar trocando no meio do curso. g_gateCfg e escrito
+//  pela web (core 1) e lido pela task (core 0): sempre sob s_mux.
+// ---------------------------------------------------------------------------
+static float angDeg(const float *a, const float *b)
+{
+    const float d = a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+    return acosf(fmaxf(-1.0f, fminf(d, 1.0f))) * RAD2DEG;
+}
+
+static void gateUpdate(const float *grav)
+{
+    GateSettings gc;
+    portENTER_CRITICAL(&s_mux);
+    gc = g_gateCfg;
+    portEXIT_CRITICAL(&s_mux);
+
+    const float dC = (gc.valid & GATE_REF_CLOSED) ? angDeg(grav, gc.closed) : -1.0f;
+    const float dO = (gc.valid & GATE_REF_OPEN)   ? angDeg(grav, gc.open)   : -1.0f;
+    s_d.gateDegClosed = dC;
+    s_d.gateDegOpen   = dO;
+
+    const uint8_t antes = s_d.gate;
+    const float   sep   = (dC >= 0 && dO >= 0) ? angDeg(gc.closed, gc.open) : 0;
+    if (sep < GATE_MIN_SEP_DEG) {
+        s_d.gate = GATE_UNKNOWN;
+    } else {
+        const float hyst = fmaxf(sep * GATE_HYST_FRAC, GATE_HYST_MIN_DEG);
+        switch (s_d.gate) {
+        case GATE_CLOSED: if (dO < dC - hyst) s_d.gate = GATE_OPEN;   break;
+        case GATE_OPEN:   if (dC < dO - hyst) s_d.gate = GATE_CLOSED; break;
+        default:          s_d.gate = dO < dC ? GATE_OPEN : GATE_CLOSED; break;
+        }
+    }
+    if (s_d.gate != antes && s_d.gate != GATE_UNKNOWN)
+        Serial.printf("[imu] cancela %s\n", imuGateName(s_d.gate));
+}
+
+const char *imuGateName(uint8_t gate)
+{
+    return gate == GATE_OPEN ? "aberta" : gate == GATE_CLOSED ? "fechada" : "desconhecido";
+}
+
+bool imuGateTeach(bool open, float *sepDeg, const char **err)
+{
+    const ImuData d = imuGet();
+    *sepDeg = -1;
+    if (!d.present || !d.updatedMs || millis() - d.updatedMs > GATE_TEACH_AGE_MS) {
+        *err = "sensor ausente";
+        return false;
+    }
+    // o vetor so e confiavel com o braco parado: girando ele atrasa, e com
+    // aceleracao forte o filtro ainda nao convergiu
+    if (d.moving || d.lin > IMU_ACC_TRUST_G) {
+        *err = "cancela em movimento: espere parar";
+        return false;
+    }
+
+    GateSettings gc;
+    portENTER_CRITICAL(&s_mux);
+    float *ref = open ? g_gateCfg.open : g_gateCfg.closed;
+    for (int i = 0; i < 3; i++) ref[i] = d.gdir[i];
+    g_gateCfg.valid |= open ? GATE_REF_OPEN : GATE_REF_CLOSED;
+    gc = g_gateCfg;
+    portEXIT_CRITICAL(&s_mux);
+    settingsSave();
+
+    if ((gc.valid & GATE_REF_CLOSED) && (gc.valid & GATE_REF_OPEN))
+        *sepDeg = angDeg(gc.closed, gc.open);
+    Serial.printf("[imu] referencia de cancela %s gravada (%.3f %.3f %.3f)\n",
+                  open ? "aberta" : "fechada", d.gdir[0], d.gdir[1], d.gdir[2]);
+    return true;
+}
+
+void imuGateClear()
+{
+    portENTER_CRITICAL(&s_mux);
+    memset(&g_gateCfg, 0, sizeof(g_gateCfg));
+    portEXIT_CRITICAL(&s_mux);
+    settingsSave();
+}
 
 // ---------------------------------------------------------------------------
 //  I2C
@@ -202,6 +291,7 @@ static void sampleLoop()
 
     s_d.calibrated  = false;
     s_d.calibrating = true;          // tenta calibrar assim que o sensor fica parado
+    s_d.gate        = GATE_UNKNOWN;  // a 1a amostra decide pela referencia mais proxima
 
     uint8_t    fails  = 0;
     uint32_t   lastUs = micros();
@@ -319,6 +409,8 @@ static void sampleLoop()
         }
         s_d.roll  = atan2f(grav[1], grav[2]) * RAD2DEG;
         s_d.pitch = atan2f(-grav[0], sqrtf(grav[1] * grav[1] + grav[2] * grav[2])) * RAD2DEG;
+        for (int i = 0; i < 3; i++) s_d.gdir[i] = grav[i];
+        gateUpdate(grav);
 
         // --- aceleracao linear, vibracao e pancadas ---------------------------
         float l[3];
@@ -387,6 +479,7 @@ static void imuTask(void *)
             s_d.present = false;
             s_d.moving  = false;
             s_d.calibrating = false;
+            s_d.gate    = GATE_UNKNOWN;
             publish();
             vTaskDelay(pdMS_TO_TICKS(IMU_PROBE_MS));
             continue;
@@ -404,6 +497,7 @@ static void imuTask(void *)
         s_d.present = false;
         s_d.moving  = false;
         s_d.calibrating = false;
+        s_d.gate    = GATE_UNKNOWN;
         publish();
         // reinicia o periferico: um escravo resetado no meio de uma leitura
         // pode deixar o barramento travado
